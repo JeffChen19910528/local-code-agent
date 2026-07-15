@@ -30,7 +30,38 @@
 - 用 `/名稱` 打關鍵字叫出自訂 Skill（見下方「Skill 系統」）
 - 任務進度 Checkpoint：存目標/待辦事項，並自動附上最近對話內容，跨 session 恢復（見下方「任務進度 Checkpoint」）
 
-## 安裝
+## 安裝（推薦，跟 Claude Code 一樣）
+
+從 npm 全域安裝，裝完就能在任何資料夾直接打 `local-code`，不用額外初始化：
+
+```powershell
+npm install -g @jc20231028/local-code-agent
+```
+
+裝完之後，切到任何專案資料夾都可以直接執行：
+
+```powershell
+cd C:\path\to\your-project
+local-code chat
+```
+
+**注意：一定要加 `-g`。** 如果只下 `npm install @jc20231028/local-code-agent`（沒有 `-g`），
+npm 只會把執行檔裝進當下專案的 `node_modules/.bin`，不會加進系統 PATH，
+在 cmd 直接打 `local-code` 會抓不到指令。這種情況下要嘛加 `-g` 重裝，要嘛用 `npx local-code chat` 執行。
+
+如果你已經用沒加 `-g` 的方式裝過，先移除本地安裝再改用全域安裝：
+
+```powershell
+npm uninstall @jc20231028/local-code-agent
+npm install -g @jc20231028/local-code-agent
+```
+
+`provider` / `model` 留空時，`local-code chat` 第一次啟動就會直接跳出互動選單讓你選（見下方「初始化設定」），
+不需要先手動跑 `local-code init`——`init` 只是用來印出設定檔範例，不是必要步驟。
+
+`workspace` 預設就是執行當下的 `process.cwd()`，所以不同專案資料夾會各自使用自己的 `.local-code.json` / `.local-code-state.json`（沒有的話 CLI 會在互動模式下詢問並建立）。
+
+## 本地開發（clone 這個 repo 時使用）
 
 ```powershell
 npm.cmd install
@@ -42,26 +73,13 @@ npm.cmd install
 node ./bin/local-code.js help
 ```
 
-## 掛成全域命令
-
-掛成全域命令後，就能在任何專案資料夾直接用 `local-code`，不用再 `cd` 回這個 repo 或打完整路徑：
+想在其他專案資料夾測試本地修改，可以用 `npm.cmd link` 掛成全域命令：
 
 ```powershell
 npm.cmd link
 ```
 
-掛完之後，切到任何專案資料夾都可以直接執行：
-
-```powershell
-cd C:\path\to\other-project
-local-code help
-local-code run "read the repo and fix the bug"
-local-code chat
-```
-
-`workspace` 預設就是執行當下的 `process.cwd()`，所以不同專案資料夾會各自使用自己的 `.local-code.json` / `.local-code-state.json`（沒有的話 CLI 會在互動模式下詢問並建立）。
-
-## 初始化設定
+## 初始化設定（選用）
 
 ```powershell
 node ./bin/local-code.js init
