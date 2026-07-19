@@ -1,6 +1,4 @@
 import path from "node:path";
-import readline from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
 import {
   loadAppState,
   loadConfig,
@@ -18,7 +16,9 @@ import {
   summarizeProvider
 } from "./runtime.js";
 import {
+  closeSharedReadline,
   color,
+  getSharedReadline,
   isInteractive,
   printNote,
   printSplash,
@@ -149,6 +149,10 @@ function summarizeToolCall(toolCall) {
       return args.path ?? ".";
     case "run_command":
       return [args.command, ...(args.args ?? [])].join(" ");
+    case "web_search":
+      return `"${args.query ?? ""}"`;
+    case "web_fetch":
+      return args.url ?? "";
     default:
       return JSON.stringify(args);
   }
@@ -194,7 +198,7 @@ function buildUnknownSkillMessage(token, skills) {
 }
 
 async function runChat(config, skills) {
-  const rl = readline.createInterface({ input, output });
+  const rl = getSharedReadline();
   let activeConfig = { ...config };
   let chatState = await loadChatState(activeConfig);
   let session = createChatSession(activeConfig, chatState.history);
@@ -324,7 +328,7 @@ async function runChat(config, skills) {
       printResult(result);
     }
   } finally {
-    rl.close();
+    closeSharedReadline();
   }
 }
 
@@ -377,7 +381,7 @@ async function runCheckpointCommand(config, subcommand, rest) {
 }
 
 async function cmdCheckpointSave(config) {
-  const rl = readline.createInterface({ input, output });
+  const rl = getSharedReadline();
   try {
     const fields = await collectCheckpointFields(rl);
     const state = await loadAppState(config.statePath);
@@ -389,7 +393,7 @@ async function cmdCheckpointSave(config) {
 
     console.log(`\ncheckpoint saved: ${checkpoint.id}`);
   } finally {
-    rl.close();
+    closeSharedReadline();
   }
 }
 
@@ -484,6 +488,7 @@ async function printInitExample(cwd) {
     maxSteps: 12,
     allowCommands: false,
     allowWrites: false,
+    allowNetwork: false,
     temperature: 0.2
   };
 
@@ -550,6 +555,7 @@ Options:
   --workspace PATH
   --allow-commands
   --allow-writes
+  --allow-network
   --max-steps 12
   --temperature 0.2
   --ollama-base-url http://127.0.0.1:11434

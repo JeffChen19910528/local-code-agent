@@ -27,6 +27,7 @@
 - 進行局部字串替換
 - 寫入 `.py` / `.js` / `.mjs` 後自動做語法檢查，結果會回饋給模型自我修正
 - 執行本地命令（`dotnet build`、`npm test`、`python xxx.py` 等）來編譯/測試/執行程式碼——預設每次執行前會在終端機跳出來問你要不要允許，`--allow-commands` 則整個 session 都自動允許不再詢問
+- 上網查資料：`web_search`（DuckDuckGo 搜尋，回傳標題/連結/摘要）、`web_fetch`（抓單一網頁並轉成純文字給模型讀）——讓模型能回答訓練資料截止日之後的新資訊。預設每次連網前也會在終端機問你要不要允許，`--allow-network` 則整個 session 都自動允許不再詢問
 - 用 `/名稱` 打關鍵字叫出自訂 Skill（見下方「Skill 系統」）
 - 任務進度 Checkpoint：存目標/待辦事項，並自動附上最近對話內容，跨 session 恢復（見下方「任務進度 Checkpoint」）
 
@@ -97,6 +98,7 @@ node ./bin/local-code.js init
   "maxSteps": 12,
   "allowCommands": false,
   "allowWrites": false,
+  "allowNetwork": false,
   "temperature": 0.2
 }
 ```
@@ -145,6 +147,12 @@ node ./bin/local-code.js run "執行測試並修正失敗案例" --allow-command
 
 ```powershell
 node ./bin/local-code.js run "幫我建立這個功能的檔案" --allow-writes
+```
+
+模型呼叫 `web_search`（查 DuckDuckGo）或 `web_fetch`（抓網頁內容）時，一樣預設會先問 `Allow this network request? [y/N]:`，按 `y` 才會真的發出連線；沒有 TTY 時直接安全拒絕。這讓模型能查到訓練資料截止日之後的新資訊（例如新版本號、近期新聞），不用只靠舊的訓練知識回答。想跳過詢問可以加 `--allow-network`：
+
+```powershell
+node ./bin/local-code.js run "幫我查一下最新的 Node.js LTS 版本" --allow-network
 ```
 
 `run_command` 之外的其他工具（`list_files`、`read_file`、`search_text`）只是讀取，不會跳出詢問。每一步驟模型在做什麼、呼叫了哪個工具、帶了什麼參數，都會即時印在終端機（stderr），不會等到最後才一次顯示結果。

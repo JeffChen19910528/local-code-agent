@@ -2,6 +2,25 @@ import readline from "node:readline";
 import readlinePromises from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
+let sharedRl = null;
+
+// A second readline interface on the same stdin (e.g. a confirm prompt opened
+// while chat's main loop still owns one) causes duplicated/garbled input, since
+// both instances read every keystroke. Reuse a single process-wide interface instead.
+export function getSharedReadline() {
+  if (!sharedRl) {
+    sharedRl = readlinePromises.createInterface({ input, output });
+  }
+  return sharedRl;
+}
+
+export function closeSharedReadline() {
+  if (sharedRl) {
+    sharedRl.close();
+    sharedRl = null;
+  }
+}
+
 const ANSI = {
   reset: "\u001b[0m",
   bold: "\u001b[1m",
@@ -165,13 +184,9 @@ export async function confirmCommand({ command, args = [], cwd }) {
   output.write(`\n${style("Model wants to run:", "yellow")} ${commandLine}\n`);
   output.write(`${style("Working directory:", "dim")} ${cwd}\n`);
 
-  const rl = readlinePromises.createInterface({ input, output });
-  try {
-    const answer = (await rl.question("Allow this command? [y/N]: ")).trim().toLowerCase();
-    return answer === "y" || answer === "yes";
-  } finally {
-    rl.close();
-  }
+  const rl = getSharedReadline();
+  const answer = (await rl.question("Allow this command? [y/N]: ")).trim().toLowerCase();
+  return answer === "y" || answer === "yes";
 }
 
 const WRITE_ACTION_LABELS = {
@@ -197,13 +212,28 @@ export async function confirmWrite({ action, path: targetPath, preview = "", cwd
     output.write(`${style("Preview:", "dim")}\n${snippet}\n`);
   }
 
-  const rl = readlinePromises.createInterface({ input, output });
-  try {
-    const answer = (await rl.question("Allow this change? [y/N]: ")).trim().toLowerCase();
-    return answer === "y" || answer === "yes";
-  } finally {
-    rl.close();
+  const rl = getSharedReadline();
+  const answer = (await rl.question("Allow this change? [y/N]: ")).trim().toLowerCase();
+  return answer === "y" || answer === "yes";
+}
+
+export async function confirmNetwork({ action, detail = "", cwd }) {
+  if (!isInteractive()) {
+    return false;
   }
+
+  output.write(`\n${style("Model wants to access the network:", "yellow")} ${action}\n`);
+  if (detail) {
+    const snippet = detail.length > 200 ? `${detail.slice(0, 200)}...` : detail;
+    output.write(`${style("Detail:", "dim")} ${snippet}\n`);
+  }
+  if (cwd) {
+    output.write(`${style("Working directory:", "dim")} ${cwd}\n`);
+  }
+
+  const rl = getSharedReadline();
+  const answer = (await rl.question("Allow this network request? [y/N]: ")).trim().toLowerCase();
+  return answer === "y" || answer === "yes";
 }
 
 export function printNote(message) {

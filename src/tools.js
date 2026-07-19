@@ -1,5 +1,5 @@
 import { checkSyntax } from "./syntaxCheck.js";
-import { confirmCommand, confirmWrite } from "./ui.js";
+import { confirmCommand, confirmNetwork, confirmWrite } from "./ui.js";
 
 export function createToolset(workspace) {
   const tools = {
@@ -79,6 +79,31 @@ export function createToolset(workspace) {
         const approved = await confirmCommand({ command, args, cwd: workspace.rootPath });
         return workspace.runCommand(command, args, { approved });
       }
+    },
+    web_search: {
+      description: [
+        "Search the public web (DuckDuckGo) and return up to `limit` results as {title, url, snippet}.",
+        "Use this when the user asks about recent events, current versions/releases, prices, or anything that may have changed since your training data - do not answer from memory alone in those cases.",
+        "Follow up with web_fetch on a promising result to read the full page.",
+        "Unless the session was started with --allow-network, the user is asked to approve each network request in the terminal before it runs."
+      ].join(" "),
+      args: { query: "string", limit: "number?" },
+      run: async ({ query, limit = 5 }) => {
+        const approved = await approveNetwork(workspace, { action: "web_search", detail: query });
+        return workspace.searchWeb(query, { approved, limit });
+      }
+    },
+    web_fetch: {
+      description: [
+        "Fetch a web page by URL and return its title and readable text content (HTML tags stripped, truncated to maxChars).",
+        "Use this to read a specific page, e.g. a result from web_search or a URL the user gave you.",
+        "Unless the session was started with --allow-network, the user is asked to approve each network request in the terminal before it runs."
+      ].join(" "),
+      args: { url: "string", maxChars: "number?" },
+      run: async ({ url, maxChars = 8000 }) => {
+        const approved = await approveNetwork(workspace, { action: "web_fetch", detail: url });
+        return workspace.fetchUrl(url, { approved, maxChars });
+      }
     }
   };
 
@@ -112,6 +137,14 @@ async function approveWrite(workspace, { action, path, preview }) {
   }
 
   return confirmWrite({ action, path, preview, cwd: workspace.rootPath });
+}
+
+async function approveNetwork(workspace, { action, detail }) {
+  if (workspace.allowNetwork) {
+    return true;
+  }
+
+  return confirmNetwork({ action, detail, cwd: workspace.rootPath });
 }
 
 async function withSyntaxCheck(workspace, targetPath, writeAction) {

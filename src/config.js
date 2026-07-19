@@ -10,6 +10,7 @@ const DEFAULTS = {
   maxSteps: 12,
   allowCommands: false,
   allowWrites: false,
+  allowNetwork: false,
   temperature: 0.2
 };
 
@@ -67,7 +68,8 @@ function readEnvConfig() {
     ollamaBaseUrl: process.env.OLLAMA_BASE_URL,
     lmStudioBaseUrl: process.env.LM_STUDIO_BASE_URL,
     allowCommands: parseBoolean(process.env.LOCAL_CODE_ALLOW_COMMANDS),
-    allowWrites: parseBoolean(process.env.LOCAL_CODE_ALLOW_WRITES)
+    allowWrites: parseBoolean(process.env.LOCAL_CODE_ALLOW_WRITES),
+    allowNetwork: parseBoolean(process.env.LOCAL_CODE_ALLOW_NETWORK)
   };
 }
 

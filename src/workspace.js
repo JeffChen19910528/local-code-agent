@@ -8,16 +8,26 @@ const DEFAULT_IGNORES = new Set([
   ".DS_Store"
 ]);
 
+const NETWORK_TIMEOUT_MS = 15000;
+const USER_AGENT = "Mozilla/5.0 (compatible; local-code-agent/1.0)";
+
 export class Workspace {
   constructor(rootPath, options = {}) {
     this.rootPath = path.resolve(rootPath);
     this.allowCommands = Boolean(options.allowCommands);
     this.allowWrites = Boolean(options.allowWrites);
+    this.allowNetwork = Boolean(options.allowNetwork);
   }
 
   assertWriteApproved(approved) {
     if (!this.allowWrites && !approved) {
       throw new Error("File change was not approved. Re-run with --allow-writes to skip the prompt, or approve it when asked.");
+    }
+  }
+
+  assertNetworkApproved(approved) {
+    if (!this.allowNetwork && !approved) {
+      throw new Error("Network access was not approved. Re-run with --allow-network to skip the prompt, or approve it when asked.");
     }
   }
 
@@ -155,6 +165,112 @@ export class Workspace {
       });
     });
   }
+
+  async fetchUrl(targetUrl, { approved = false, maxChars = 8000 } = {}) {
+    this.assertNetworkApproved(approved);
+
+    const parsed = new URL(targetUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error(`Unsupported URL protocol: ${parsed.protocol}`);
+    }
+
+    const response = await fetchWithTimeout(parsed.toString());
+    if (!response.ok) {
+      throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
+    }
+
+    const html = await response.text();
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const title = titleMatch ? decodeEntities(titleMatch[1]).trim() : "";
+    const text = stripTags(html);
+
+    return {
+      url: parsed.toString(),
+      title,
+      text: text.length > maxChars ? `${text.slice(0, maxChars)}...` : text
+    };
+  }
+
+  async searchWeb(query, { approved = false, limit = 5 } = {}) {
+    this.assertNetworkApproved(approved);
+
+    const response = await fetchWithTimeout("https://html.duckduckgo.com/html/", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `q=${encodeURIComponent(query)}`
+    });
+    if (!response.ok) {
+      throw new Error(`Search failed: ${response.status} ${response.statusText}`);
+    }
+
+    const html = await response.text();
+    const snippets = [];
+    const snippetPattern = /<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+    let snippetMatch;
+    while ((snippetMatch = snippetPattern.exec(html)) !== null) {
+      snippets.push(stripTags(snippetMatch[1]));
+    }
+
+    const results = [];
+    const linkPattern = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+    let linkMatch;
+    while ((linkMatch = linkPattern.exec(html)) !== null && results.length < limit) {
+      results.push({
+        title: stripTags(linkMatch[2]),
+        url: resolveDuckDuckGoUrl(linkMatch[1]),
+        snippet: snippets[results.length] ?? ""
+      });
+    }
+
+    return results;
+  }
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: { "User-Agent": USER_AGENT, ...options.headers }
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function resolveDuckDuckGoUrl(href) {
+  try {
+    const url = new URL(href.startsWith("//") ? `https:${href}` : href);
+    const target = url.searchParams.get("uddg");
+    return target ? decodeURIComponent(target) : url.toString();
+  } catch {
+    return href;
+  }
+}
+
+function decodeEntities(text) {
+  return text
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#0*39;|&#x0*27;/gi, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&amp;/g, "&");
+}
+
+function stripTags(html) {
+  return decodeEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+  )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 const MAX_SCANNED_ENTRIES = 5000;
