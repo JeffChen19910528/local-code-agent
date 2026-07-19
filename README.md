@@ -96,6 +96,7 @@ node ./bin/local-code.js init
   "lmStudioBaseUrl": "http://127.0.0.1:1234",
   "maxSteps": 12,
   "allowCommands": false,
+  "allowWrites": false,
   "temperature": 0.2
 }
 ```
@@ -139,6 +140,14 @@ node ./bin/local-code.js run "編譯並執行這個 C# 專案"
 ```powershell
 node ./bin/local-code.js run "執行測試並修正失敗案例" --allow-commands
 ```
+
+同樣地，模型呼叫 `write_file`、`append_file`、`replace_in_file`、`make_directory` 這些會建立/覆寫/修改檔案或資料夾的工具時，預設也會先印出要變更的路徑（和內容預覽）並問 `Allow this change? [y/N]:`，按 `y` 才會真的寫入；沒有 TTY 時一樣直接安全拒絕。想跳過詢問可以加 `--allow-writes`：
+
+```powershell
+node ./bin/local-code.js run "幫我建立這個功能的檔案" --allow-writes
+```
+
+`run_command` 之外的其他工具（`list_files`、`read_file`、`search_text`）只是讀取，不會跳出詢問。每一步驟模型在做什麼、呼叫了哪個工具、帶了什麼參數，都會即時印在終端機（stderr），不會等到最後才一次顯示結果。
 
 列出目前可用的 Skill：
 

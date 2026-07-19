@@ -174,6 +174,38 @@ export async function confirmCommand({ command, args = [], cwd }) {
   }
 }
 
+const WRITE_ACTION_LABELS = {
+  write: "create/overwrite file",
+  append: "append to file",
+  replace: "replace text in file",
+  mkdir: "create directory"
+};
+
+export async function confirmWrite({ action, path: targetPath, preview = "", cwd }) {
+  if (!isInteractive()) {
+    return false;
+  }
+
+  const label = WRITE_ACTION_LABELS[action] ?? action;
+  output.write(`\n${style("Model wants to " + label + ":", "yellow")} ${targetPath}\n`);
+  if (cwd) {
+    output.write(`${style("Working directory:", "dim")} ${cwd}\n`);
+  }
+
+  if (preview) {
+    const snippet = preview.length > 400 ? `${preview.slice(0, 400)}...` : preview;
+    output.write(`${style("Preview:", "dim")}\n${snippet}\n`);
+  }
+
+  const rl = readlinePromises.createInterface({ input, output });
+  try {
+    const answer = (await rl.question("Allow this change? [y/N]: ")).trim().toLowerCase();
+    return answer === "y" || answer === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
 export function printNote(message) {
   console.log(style(message, "dim"));
 }

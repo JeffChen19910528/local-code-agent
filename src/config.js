@@ -9,6 +9,7 @@ const DEFAULTS = {
   lmStudioBaseUrl: "http://127.0.0.1:1234",
   maxSteps: 12,
   allowCommands: false,
+  allowWrites: false,
   temperature: 0.2
 };
 
@@ -65,7 +66,8 @@ function readEnvConfig() {
     model: process.env.LOCAL_CODE_MODEL,
     ollamaBaseUrl: process.env.OLLAMA_BASE_URL,
     lmStudioBaseUrl: process.env.LM_STUDIO_BASE_URL,
-    allowCommands: parseBoolean(process.env.LOCAL_CODE_ALLOW_COMMANDS)
+    allowCommands: parseBoolean(process.env.LOCAL_CODE_ALLOW_COMMANDS),
+    allowWrites: parseBoolean(process.env.LOCAL_CODE_ALLOW_WRITES)
   };
 }
 

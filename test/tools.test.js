@@ -6,9 +6,9 @@ import path from "node:path";
 import { Workspace } from "../src/workspace.js";
 import { createToolset } from "../src/tools.js";
 
-async function makeToolset() {
+async function makeToolset(options = { allowWrites: true }) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-tools-"));
-  const workspace = new Workspace(root);
+  const workspace = new Workspace(root, options);
   return { root, workspace, toolset: createToolset(workspace) };
 }
 
@@ -81,4 +81,38 @@ test("run_command is denied without hanging when allowCommands is off and there 
     toolset.execute("run_command", { command: "node", args: ["-e", "console.log(1)"] }),
     /not approved/i
   );
+});
+
+test("write_file is denied without hanging when allowWrites is off and there is no TTY to prompt", async () => {
+  const { toolset } = await makeToolset({ allowWrites: false });
+
+  await assert.rejects(
+    toolset.execute("write_file", { path: "notes.txt", content: "hello" }),
+    /not approved/i
+  );
+});
+
+test("append_file is denied without hanging when allowWrites is off and there is no TTY to prompt", async () => {
+  const { toolset } = await makeToolset({ allowWrites: false });
+
+  await assert.rejects(
+    toolset.execute("append_file", { path: "notes.txt", content: "hello" }),
+    /not approved/i
+  );
+});
+
+test("make_directory is denied without hanging when allowWrites is off and there is no TTY to prompt", async () => {
+  const { toolset } = await makeToolset({ allowWrites: false });
+
+  await assert.rejects(
+    toolset.execute("make_directory", { path: "sub" }),
+    /not approved/i
+  );
+});
+
+test("write_file runs without prompting when allowWrites is on", async () => {
+  const { toolset, workspace } = await makeToolset({ allowWrites: true });
+
+  await toolset.execute("write_file", { path: "notes.txt", content: "hello" });
+  assert.equal(await workspace.readFile("notes.txt"), "hello");
 });

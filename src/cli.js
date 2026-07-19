@@ -116,8 +116,11 @@ function buildProgressHooks() {
     onStep(step) {
       console.error(`step ${step}: waiting for model...`);
     },
+    onReasoning({ step, text }) {
+      console.error(`step ${step} thinking: ${truncateForLog(text, 200)}`);
+    },
     onToolCall(toolCall) {
-      console.error(`step result: called tool "${toolCall.tool}"`);
+      console.error(`step result: called tool "${toolCall.tool}" -> ${summarizeToolCall(toolCall)}`);
     },
     onToolCallError({ step, reason, message, attempt }) {
       const label = reason === "truncated" ? "reply cut off (length limit)" : "invalid tool call JSON";
@@ -127,6 +130,33 @@ function buildProgressHooks() {
       }
     }
   };
+}
+
+function summarizeToolCall(toolCall) {
+  const args = toolCall.args ?? {};
+  switch (toolCall.tool) {
+    case "read_file":
+    case "make_directory":
+      return args.path ?? "";
+    case "write_file":
+    case "append_file":
+      return `${args.path ?? ""} (${String(args.content ?? "").length} chars)`;
+    case "replace_in_file":
+      return `${args.path ?? ""} (find: "${truncateForLog(args.findText ?? "", 40)}")`;
+    case "search_text":
+      return `"${args.query ?? ""}" in ${args.path ?? "."}`;
+    case "list_files":
+      return args.path ?? ".";
+    case "run_command":
+      return [args.command, ...(args.args ?? [])].join(" ");
+    default:
+      return JSON.stringify(args);
+  }
+}
+
+function truncateForLog(text, max) {
+  const flattened = text.replace(/\s+/g, " ").trim();
+  return flattened.length > max ? `${flattened.slice(0, max)}...` : flattened;
 }
 
 function printResult(result) {
@@ -453,6 +483,7 @@ async function printInitExample(cwd) {
     lmStudioBaseUrl: "http://127.0.0.1:1234",
     maxSteps: 12,
     allowCommands: false,
+    allowWrites: false,
     temperature: 0.2
   };
 
@@ -518,6 +549,7 @@ Options:
   --model MODEL_NAME
   --workspace PATH
   --allow-commands
+  --allow-writes
   --max-steps 12
   --temperature 0.2
   --ollama-base-url http://127.0.0.1:11434

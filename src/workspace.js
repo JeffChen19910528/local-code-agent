@@ -12,6 +12,13 @@ export class Workspace {
   constructor(rootPath, options = {}) {
     this.rootPath = path.resolve(rootPath);
     this.allowCommands = Boolean(options.allowCommands);
+    this.allowWrites = Boolean(options.allowWrites);
+  }
+
+  assertWriteApproved(approved) {
+    if (!this.allowWrites && !approved) {
+      throw new Error("File change was not approved. Re-run with --allow-writes to skip the prompt, or approve it when asked.");
+    }
   }
 
   resolvePath(targetPath = ".") {
@@ -47,21 +54,24 @@ export class Workspace {
     return fs.readFile(fullPath, "utf8");
   }
 
-  async writeFile(targetPath, content) {
+  async writeFile(targetPath, content, { approved = false } = {}) {
+    this.assertWriteApproved(approved);
     const fullPath = this.resolvePath(targetPath);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.writeFile(fullPath, content, "utf8");
     return `Wrote ${path.relative(this.rootPath, fullPath)}`;
   }
 
-  async appendFile(targetPath, content) {
+  async appendFile(targetPath, content, { approved = false } = {}) {
+    this.assertWriteApproved(approved);
     const fullPath = this.resolvePath(targetPath);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.appendFile(fullPath, content, "utf8");
     return `Appended to ${path.relative(this.rootPath, fullPath)}`;
   }
 
-  async replaceInFile(targetPath, findText, replaceText, replaceAll = false) {
+  async replaceInFile(targetPath, findText, replaceText, replaceAll = false, { approved = false } = {}) {
+    this.assertWriteApproved(approved);
     const fullPath = this.resolvePath(targetPath);
     const current = await fs.readFile(fullPath, "utf8");
     if (!current.includes(findText)) {
@@ -102,7 +112,8 @@ export class Workspace {
     return matches;
   }
 
-  async makeDirectory(targetPath) {
+  async makeDirectory(targetPath, { approved = false } = {}) {
+    this.assertWriteApproved(approved);
     const fullPath = this.resolvePath(targetPath);
     await fs.mkdir(fullPath, { recursive: true });
     return `Created ${path.relative(this.rootPath, fullPath)}`;

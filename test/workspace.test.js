@@ -7,7 +7,7 @@ import { Workspace } from "../src/workspace.js";
 
 test("workspace writes and reads files inside root", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
-  const workspace = new Workspace(root);
+  const workspace = new Workspace(root, { allowWrites: true });
 
   await workspace.writeFile("src/demo.txt", "hello");
   const content = await workspace.readFile("src/demo.txt");
@@ -17,7 +17,7 @@ test("workspace writes and reads files inside root", async () => {
 
 test("workspace appendFile creates a new file", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
-  const workspace = new Workspace(root);
+  const workspace = new Workspace(root, { allowWrites: true });
 
   await workspace.appendFile("notes.txt", "first line\n");
   assert.equal(await workspace.readFile("notes.txt"), "first line\n");
@@ -25,12 +25,30 @@ test("workspace appendFile creates a new file", async () => {
 
 test("workspace appendFile adds to existing content without rewriting it", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
-  const workspace = new Workspace(root);
+  const workspace = new Workspace(root, { allowWrites: true });
 
   await workspace.writeFile("notes.txt", "first line\n");
   await workspace.appendFile("notes.txt", "second line\n");
 
   assert.equal(await workspace.readFile("notes.txt"), "first line\nsecond line\n");
+});
+
+test("workspace writeFile rejects when not allowed and not approved", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root, { allowWrites: false });
+
+  await assert.rejects(
+    workspace.writeFile("notes.txt", "hello"),
+    /not approved/i
+  );
+});
+
+test("workspace writeFile runs when approved for this call, even if allowWrites is off", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root, { allowWrites: false });
+
+  await workspace.writeFile("notes.txt", "hello", { approved: true });
+  assert.equal(await workspace.readFile("notes.txt"), "hello");
 });
 
 test("workspace runCommand rejects when not allowed and not approved", async () => {
@@ -70,7 +88,7 @@ test("workspace blocks path traversal", async () => {
 
 test("workspace lists recent files in newest-first order", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
-  const workspace = new Workspace(root);
+  const workspace = new Workspace(root, { allowWrites: true });
 
   await workspace.writeFile("a.txt", "a");
   await workspace.writeFile("b.txt", "b");

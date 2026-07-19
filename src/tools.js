@@ -1,5 +1,5 @@
 import { checkSyntax } from "./syntaxCheck.js";
-import { confirmCommand } from "./ui.js";
+import { confirmCommand, confirmWrite } from "./ui.js";
 
 export function createToolset(workspace) {
   const tools = {
@@ -17,15 +17,22 @@ export function createToolset(workspace) {
       description: [
         "Create or overwrite a UTF-8 file inside the workspace.",
         "For files longer than ~40 lines, write a small skeleton first (imports and function signatures), then use append_file to add the rest in smaller pieces.",
-        "Do not use this to add to a file that already has content you want to keep - use append_file instead, so you never have to retype existing content."
+        "Do not use this to add to a file that already has content you want to keep - use append_file instead, so you never have to retype existing content.",
+        "Unless the session was started with --allow-writes, the user is asked to approve each file change in the terminal before it is written."
       ].join(" "),
       args: { path: "string", content: "string" },
-      run: async ({ path, content }) => withSyntaxCheck(workspace, path, () => workspace.writeFile(path, content))
+      run: async ({ path, content }) => {
+        const approved = await approveWrite(workspace, { action: "write", path, preview: content });
+        return withSyntaxCheck(workspace, path, () => workspace.writeFile(path, content, { approved }));
+      }
     },
     append_file: {
       description: "Append content to the end of a file, creating it if it does not exist. Prefer this over write_file when a file already has content you want to keep.",
       args: { path: "string", content: "string" },
-      run: async ({ path, content }) => withSyntaxCheck(workspace, path, () => workspace.appendFile(path, content))
+      run: async ({ path, content }) => {
+        const approved = await approveWrite(workspace, { action: "append", path, preview: content });
+        return withSyntaxCheck(workspace, path, () => workspace.appendFile(path, content, { approved }));
+      }
     },
     replace_in_file: {
       description: "Replace text inside an existing file.",
@@ -35,11 +42,18 @@ export function createToolset(workspace) {
         replaceText: "string",
         replaceAll: "boolean?"
       },
-      run: async (args) => withSyntaxCheck(
-        workspace,
-        args.path,
-        () => workspace.replaceInFile(args.path, args.findText, args.replaceText, args.replaceAll)
-      )
+      run: async (args) => {
+        const approved = await approveWrite(workspace, {
+          action: "replace",
+          path: args.path,
+          preview: `Find:\n${args.findText}\nReplace with:\n${args.replaceText}`
+        });
+        return withSyntaxCheck(
+          workspace,
+          args.path,
+          () => workspace.replaceInFile(args.path, args.findText, args.replaceText, args.replaceAll, { approved })
+        );
+      }
     },
     search_text: {
       description: "Search for a plain text query across workspace files.",
@@ -49,7 +63,10 @@ export function createToolset(workspace) {
     make_directory: {
       description: "Create a directory recursively in the workspace.",
       args: { path: "string" },
-      run: async ({ path }) => workspace.makeDirectory(path)
+      run: async ({ path }) => {
+        const approved = await approveWrite(workspace, { action: "mkdir", path });
+        return workspace.makeDirectory(path, { approved });
+      }
     },
     run_command: {
       description: "Run a local shell command inside the workspace (e.g. dotnet run, npm test, python script.py) to build, test, or execute code. Unless the session was started with --allow-commands, the user is asked to approve each command in the terminal before it runs.",
@@ -87,6 +104,14 @@ export function createToolset(workspace) {
       return tool.run(args ?? {});
     }
   };
+}
+
+async function approveWrite(workspace, { action, path, preview }) {
+  if (workspace.allowWrites) {
+    return true;
+  }
+
+  return confirmWrite({ action, path, preview, cwd: workspace.rootPath });
 }
 
 async function withSyntaxCheck(workspace, targetPath, writeAction) {

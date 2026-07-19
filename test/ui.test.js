@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { confirmCommand, renderDiagnostics, renderStartupDashboard } from "../src/ui.js";
+import { confirmCommand, confirmWrite, renderDiagnostics, renderStartupDashboard } from "../src/ui.js";
 
 test("renderDiagnostics formats multiple sections", () => {
   const output = renderDiagnostics("Local provider check failed", [
@@ -43,5 +43,10 @@ test("renderStartupDashboard includes last used values", () => {
 
 test("confirmCommand denies without prompting when not running in an interactive terminal", async () => {
   const approved = await confirmCommand({ command: "dotnet", args: ["run"], cwd: process.cwd() });
+  assert.equal(approved, false);
+});
+
+test("confirmWrite denies without prompting when not running in an interactive terminal", async () => {
+  const approved = await confirmWrite({ action: "write", path: "notes.txt", preview: "hello", cwd: process.cwd() });
   assert.equal(approved, false);
 });
