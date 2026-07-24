@@ -33,29 +33,31 @@
 
 ## 安裝（推薦，跟 Claude Code 一樣）
 
-從 npm 全域安裝，裝完就能在任何資料夾直接打 `local-code`，不用額外初始化：
+從 npm 全域安裝，裝完就能在任何資料夾直接打 `local-code`，不用額外初始化。以下指令在 Windows（PowerShell / cmd）、macOS、Linux 都通用：
 
-```powershell
+```sh
 npm install -g @jc20231028/local-code-agent
 ```
 
 裝完之後，切到任何專案資料夾都可以直接執行：
 
-```powershell
-cd C:\path\to\your-project
+```sh
+cd /path/to/your-project      # Windows 上對應 cd C:\path\to\your-project
 local-code chat
 ```
 
 **注意：一定要加 `-g`。** 如果只下 `npm install @jc20231028/local-code-agent`（沒有 `-g`），
 npm 只會把執行檔裝進當下專案的 `node_modules/.bin`，不會加進系統 PATH，
-在 cmd 直接打 `local-code` 會抓不到指令。這種情況下要嘛加 `-g` 重裝，要嘛用 `npx local-code chat` 執行。
+直接打 `local-code` 會抓不到指令。這種情況下要嘛加 `-g` 重裝，要嘛用 `npx local-code chat` 執行。
 
 如果你已經用沒加 `-g` 的方式裝過，先移除本地安裝再改用全域安裝：
 
-```powershell
+```sh
 npm uninstall @jc20231028/local-code-agent
 npm install -g @jc20231028/local-code-agent
 ```
+
+> Windows 上如果 `npm` 指令解析有問題（例如某些 shell 找不到 `npm`），可以改用 `npm.cmd` 代替 `npm`。macOS / Linux 一律用 `npm` 即可，不需要（也沒有）`npm.cmd`。
 
 `provider` / `model` 留空時，`local-code chat` 第一次啟動就會直接跳出互動選單讓你選（見下方「初始化設定」），
 不需要先手動跑 `local-code init`——`init` 只是用來印出設定檔範例，不是必要步驟。
@@ -64,21 +66,23 @@ npm install -g @jc20231028/local-code-agent
 
 ## 本地開發（clone 這個 repo 時使用）
 
-```powershell
-npm.cmd install
+```sh
+npm install
 ```
 
 直接執行：
 
-```powershell
+```sh
 node ./bin/local-code.js help
 ```
 
-想在其他專案資料夾測試本地修改，可以用 `npm.cmd link` 掛成全域命令：
+想在其他專案資料夾測試本地修改，可以用 `npm link` 掛成全域命令：
 
-```powershell
-npm.cmd link
+```sh
+npm link
 ```
+
+（Windows 上若 `npm` 解析有問題可改用 `npm.cmd`，macOS / Linux 不需要這個副檔名。）
 
 ## 初始化設定（選用）
 
