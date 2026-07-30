@@ -1,7 +1,8 @@
 import { checkSyntax } from "./syntaxCheck.js";
 import { confirmCommand, confirmNetwork, confirmWrite } from "./ui.js";
+import { getAgentTask, listAgentTasks, spawnAgentTask } from "./subagents.js";
 
-export function createToolset(workspace) {
+export function createToolset(workspace, config = null) {
   const tools = {
     list_files: {
       description: "List files under the workspace or a subdirectory.",
@@ -104,6 +105,38 @@ export function createToolset(workspace) {
         const approved = await approveNetwork(workspace, { action: "web_fetch", detail: url });
         return workspace.fetchUrl(url, { approved, maxChars });
       }
+    },
+    spawn_agent: {
+      description: [
+        "Spawn a background sub-agent to work on an independent piece of the task while you continue (same workspace and permissions as the current session).",
+        "Returns immediately with {id, status:\"running\"} - it does not block. Use check_agent to poll for its result later.",
+        "There is a limit on how many background agents can run at the same time (each one keeps its own context/KV-cache in the local model server's memory). If the limit is reached, this errors instead of queueing - call check_agent on an existing task or wait for one to finish, then retry.",
+        "Only use this for genuinely independent sub-tasks (e.g. investigate two unrelated files, or draft two unrelated pieces of code) that don't depend on each other's output. Do not use it for a single sequential task - just do that yourself."
+      ].join(" "),
+      args: { task: "string" },
+      run: async ({ task }) => {
+        if (!config) {
+          throw new Error("spawn_agent is not available in this context.");
+        }
+        const record = spawnAgentTask(config, task);
+        return { id: record.id, status: record.status };
+      }
+    },
+    check_agent: {
+      description: "Check the status and result of a sub-agent previously spawned with spawn_agent. status is one of running/done/failed.",
+      args: { id: "string" },
+      run: async ({ id }) => {
+        const record = getAgentTask(id);
+        if (!record) {
+          throw new Error(`Unknown agent task: ${id}`);
+        }
+        return record;
+      }
+    },
+    list_agents: {
+      description: "List all sub-agent tasks spawned so far in this session (running, done, or failed), most recent first.",
+      args: {},
+      run: async () => [...listAgentTasks()].reverse()
     }
   };
 

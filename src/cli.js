@@ -557,6 +557,7 @@ Options:
   --allow-writes
   --allow-network
   --max-steps 12
+  --max-concurrent-agents 3
   --temperature 0.2
   --ollama-base-url http://127.0.0.1:11434
   --lm-studio-base-url http://127.0.0.1:1234

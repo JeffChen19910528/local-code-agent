@@ -8,6 +8,7 @@ const DEFAULTS = {
   ollamaBaseUrl: "http://127.0.0.1:11434",
   lmStudioBaseUrl: "http://127.0.0.1:1234",
   maxSteps: 12,
+  maxConcurrentAgents: 3,
   allowCommands: false,
   allowWrites: false,
   allowNetwork: false,
@@ -27,6 +28,7 @@ export async function loadConfig(cwd, cliOptions = {}) {
 
   merged.workspace = path.resolve(cwd, merged.workspace);
   merged.maxSteps = Number(merged.maxSteps) || DEFAULTS.maxSteps;
+  merged.maxConcurrentAgents = Number(merged.maxConcurrentAgents) || DEFAULTS.maxConcurrentAgents;
   merged.temperature = Number(merged.temperature);
   if (Number.isNaN(merged.temperature)) {
     merged.temperature = DEFAULTS.temperature;

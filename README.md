@@ -30,6 +30,7 @@
 - 上網查資料：`web_search`（DuckDuckGo 搜尋，回傳標題/連結/摘要）、`web_fetch`（抓單一網頁並轉成純文字給模型讀）——讓模型能回答訓練資料截止日之後的新資訊。預設每次連網前也會在終端機問你要不要允許，`--allow-network` 則整個 session 都自動允許不再詢問
 - 用 `/名稱` 打關鍵字叫出自訂 Skill（見下方「Skill 系統」）
 - 任務進度 Checkpoint：存目標/待辦事項，並自動附上最近對話內容，跨 session 恢復（見下方「任務進度 Checkpoint」）
+- 背景子任務（`spawn_agent` / `check_agent` / `list_agents`）：模型遇到「多個彼此獨立」的子任務時，可以把其中一個丟到背景執行，自己繼續做別的事，之後再回來取結果（見下方「背景子任務」）
 
 ## 安裝（推薦，跟 Claude Code 一樣）
 
@@ -268,6 +269,23 @@ node ./bin/local-code.js checkpoint complete
 ```
 
 只要該資料夾還有「進行中」（未標記完成）的 checkpoint，下次執行 `local-code chat` 時會自動在最上方顯示，提醒你從待辦步驟繼續，不用自己去找。
+
+## 背景子任務
+
+模型可以呼叫 `spawn_agent` 把一個**跟目前任務彼此獨立**的子任務丟到背景執行（沿用同一個 workspace 與權限設定），呼叫會立刻回傳 `{id, status:"running"}`，不會卡住主流程。之後模型可以：
+
+- `check_agent`：帶 `id` 查詢該子任務目前是 `running` / `done` / `failed`，以及完成後的結果
+- `list_agents`：列出這次 session 內所有背景子任務（最新的在前面）
+
+這是給模型自己在推理過程中決定要不要用的工具，不是給使用者手動下的指令；例如「同時檢查兩個沒有關聯的檔案」這種可以平行處理的任務，模型可能會用 `spawn_agent` 分派其中一半，自己繼續做另一半，最後再用 `check_agent` 收結果。
+
+**併發上限：** 同時間最多只能有 `maxConcurrentAgents`（預設 `3`）個背景子任務處於 `running` 狀態，超過就直接讓 `spawn_agent` 回傳錯誤（不是排隊等待），提示模型先用 `check_agent` 收一些結果再繼續開新的。這是因為每個並行的對話請求都會在本地模型伺服器（Ollama/LM Studio）裡各自佔用一份 context/KV-cache，一次開太多平行請求容易把本地伺服器的記憶體/顯存吃爆，讓整個環境變慢甚至掛掉。可以用 `.local-code.json` 的 `maxConcurrentAgents`、`--max-concurrent-agents` 參數或看你要的方式調整這個上限。
+
+限制（目前是最小版本）：
+
+- 任務清單只存在記憶體裡，CLI 結束就會消失，不像 chat 記憶或 checkpoint 會落地存檔（清單本身也不會自動清除已完成的舊紀錄，長時間跑的 session 裡會持續累積）
+- 子任務如果也需要寫檔/跑指令/連網的核准，一樣會跳出終端機 `[y/N]` 詢問，跟主任務的詢問可能交錯出現，是同一個共用的終端輸入
+- 超過併發上限時是直接報錯而不是排隊，模型需要自己用 `check_agent` 等一個任務做完再重試
 
 ## 偵測邏輯
 
