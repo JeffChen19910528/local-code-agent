@@ -116,3 +116,24 @@ test("write_file runs without prompting when allowWrites is on", async () => {
   await toolset.execute("write_file", { path: "notes.txt", content: "hello" });
   assert.equal(await workspace.readFile("notes.txt"), "hello");
 });
+
+test("read_external_file reads a file outside the workspace and echoes its absolute path", async () => {
+  const { toolset } = await makeToolset();
+
+  const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-tools-outside-"));
+  const outsideFile = path.join(outsideDir, "external.txt");
+  await fs.writeFile(outsideFile, "hello from outside");
+
+  const result = await toolset.execute("read_external_file", { path: outsideFile });
+  assert.match(result, new RegExp(outsideFile.replace(/\\/g, "\\\\")));
+  assert.match(result, /hello from outside/);
+});
+
+test("read_external_file rejects a missing file", async () => {
+  const { toolset, root } = await makeToolset();
+
+  await assert.rejects(
+    toolset.execute("read_external_file", { path: path.join(root, "missing.txt") }),
+    /File not found/i
+  );
+});

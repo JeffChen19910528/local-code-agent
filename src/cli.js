@@ -136,6 +136,7 @@ function summarizeToolCall(toolCall) {
   const args = toolCall.args ?? {};
   switch (toolCall.tool) {
     case "read_file":
+    case "read_external_file":
     case "make_directory":
       return args.path ?? "";
     case "write_file":
@@ -172,6 +173,23 @@ function printResult(result) {
   console.log(result.content);
 }
 
+export function stripQuotes(rawPath) {
+  return rawPath.replace(/^["']|["']$/g, "").trim();
+}
+
+export function formatAttachmentBlock(absolutePath, content) {
+  return `<attached_file path="${absolutePath}">\n${content}\n</attached_file>`;
+}
+
+export function applyPendingAttachments(prompt, attachments) {
+  if (!attachments || attachments.length === 0) {
+    return prompt;
+  }
+
+  const blocks = attachments.map((attachment) => formatAttachmentBlock(attachment.path, attachment.content));
+  return [...blocks, prompt].join("\n\n");
+}
+
 function printSkills(skills) {
   const uniqueSkills = [...new Set(skills.values())];
   if (uniqueSkills.length === 0) {
@@ -202,9 +220,10 @@ async function runChat(config, skills) {
   let activeConfig = { ...config };
   let chatState = await loadChatState(activeConfig);
   let session = createChatSession(activeConfig, chatState.history);
+  let pendingAttachments = [];
 
   console.log(`local-code chat (${activeConfig.provider}:${activeConfig.model || "no-model"})`);
-  console.log("Type /exit to quit. Use /provider, /model, /status, /checkpoint, or /reset during chat.");
+  console.log("Type /exit to quit. Use /provider, /model, /status, /checkpoint, /attach, or /reset during chat.");
   if (chatState.history.length > 0) {
     console.log(`restored saved chat history (${countUserTurns(chatState.history)} turn(s))`);
     console.log("If the model keeps repeating an outdated claim (e.g. from before a tool was fixed), try /reset to start fresh.");
@@ -234,6 +253,24 @@ async function runChat(config, skills) {
 
       if (prompt === "/skills") {
         printSkills(skills);
+        continue;
+      }
+
+      if (prompt === "/attach" || prompt.startsWith("/attach ")) {
+        const rawPath = stripQuotes(prompt.slice("/attach".length).trim());
+        if (!rawPath) {
+          console.log("Usage: /attach <path>   (absolute path, or a path relative to the folder local-code was started in)");
+          continue;
+        }
+
+        try {
+          const attachWorkspace = new Workspace(activeConfig.workspace);
+          const { path: resolvedPath, content } = await attachWorkspace.readExternalFile(rawPath);
+          pendingAttachments.push({ path: resolvedPath, content });
+          console.log(`attached: ${resolvedPath} (${content.length} chars) - will be sent with your next message`);
+        } catch (error) {
+          console.log(error instanceof Error ? error.message : String(error));
+        }
         continue;
       }
 
@@ -306,10 +343,12 @@ async function runChat(config, skills) {
 
       const chatPrompt = invocation.type === "skill" ? invocation.rest : prompt;
       const chatSkillOptions = invocation.type === "skill" ? { skill: invocation.skill } : {};
+      const outgoingChatPrompt = applyPendingAttachments(chatPrompt, pendingAttachments);
+      pendingAttachments = [];
 
       let result;
       try {
-        result = await session.ask(chatPrompt, chatSkillOptions);
+        result = await session.ask(outgoingChatPrompt, chatSkillOptions);
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
         continue;
@@ -583,9 +622,19 @@ Chat commands:
   /checkpoint list     List saved checkpoints
   /checkpoint show     Show the active checkpoint (or a specific one by id)
   /checkpoint complete Mark the active checkpoint (or a specific one by id) as done
+  /attach <path>       Read a file from anywhere on disk (outside the project) and
+                        include it with your next message. Prints the resolved
+                        absolute path so you can confirm which file was read.
   /skills              List available skills
   /name                Invoke a skill by name or keyword (e.g. /reviewer ...)
   /exit                Quit chat
+
+Reading files outside the project:
+  /attach <path> works in "chat" mode and queues a file to be sent with your
+  next message. The agent can also call the read_external_file tool directly
+  if you just mention an absolute path in your prompt - either way, the
+  resolved absolute path is always shown so you know exactly what was read.
+  Files are read-only and capped at 2MB.
 
 Restored chat history persists across restarts. If the model keeps repeating
 something that is no longer true (e.g. it saw a tool fail before you upgraded

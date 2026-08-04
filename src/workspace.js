@@ -10,6 +10,7 @@ const DEFAULT_IGNORES = new Set([
 
 const NETWORK_TIMEOUT_MS = 15000;
 const USER_AGENT = "Mozilla/5.0 (compatible; local-code-agent/1.0)";
+const MAX_EXTERNAL_FILE_BYTES = 2 * 1024 * 1024;
 
 export class Workspace {
   constructor(rootPath, options = {}) {
@@ -62,6 +63,31 @@ export class Workspace {
   async readFile(targetPath) {
     const fullPath = this.resolvePath(targetPath);
     return fs.readFile(fullPath, "utf8");
+  }
+
+  async readExternalFile(targetPath) {
+    if (!targetPath) {
+      throw new Error("Missing path.");
+    }
+
+    const fullPath = path.resolve(targetPath);
+    let stat;
+    try {
+      stat = await fs.stat(fullPath);
+    } catch {
+      throw new Error(`File not found: ${fullPath}`);
+    }
+
+    if (!stat.isFile()) {
+      throw new Error(`Not a file: ${fullPath}`);
+    }
+
+    if (stat.size > MAX_EXTERNAL_FILE_BYTES) {
+      throw new Error(`File too large to read (${stat.size} bytes, limit ${MAX_EXTERNAL_FILE_BYTES} bytes): ${fullPath}`);
+    }
+
+    const content = await fs.readFile(fullPath, "utf8");
+    return { path: fullPath, content };
   }
 
   async writeFile(targetPath, content, { approved = false } = {}) {

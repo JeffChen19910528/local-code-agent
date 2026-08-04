@@ -14,6 +14,19 @@ export function createToolset(workspace, config = null) {
       args: { path: "string" },
       run: async ({ path }) => workspace.readFile(path)
     },
+    read_external_file: {
+      description: [
+        "Read a UTF-8 text file from anywhere on the local computer by absolute path (or a path relative to the directory local-code was started in) - not just inside the project workspace.",
+        "Use this when the user attaches a file (e.g. via /attach) or gives you a path outside the current project and wants it analyzed.",
+        "Read-only: it cannot write outside the workspace. Files larger than 2MB are rejected.",
+        "The resolved absolute path is echoed back so the user can confirm exactly which file was read."
+      ].join(" "),
+      args: { path: "string" },
+      run: async ({ path: targetPath }) => {
+        const result = await workspace.readExternalFile(targetPath);
+        return `Read ${result.content.length} chars from ${result.path}\n\n${result.content}`;
+      }
+    },
     write_file: {
       description: [
         "Create or overwrite a UTF-8 file inside the workspace.",

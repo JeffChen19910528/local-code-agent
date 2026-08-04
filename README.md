@@ -20,6 +20,7 @@
 
 - 列出檔案
 - 讀取檔案
+- 讀取專案以外的檔案：在 `chat` 模式用 `/attach <路徑>` 附加電腦上任何位置的檔案（跟 Claude Code 一樣，會把解析出來的絕對路徑印在終端機上讓你確認讀到的是哪個檔案），下一則訊息送出時會一併帶給模型分析；模型也可以直接呼叫 `read_external_file` 工具讀取你在對話中提到的絕對路徑（唯讀、單檔上限 2MB，見下方「讀取專案以外的檔案」）
 - 搜尋文字
 - 建立資料夾
 - 寫入或覆蓋檔案
@@ -239,6 +240,7 @@ Chat 內建指令：
 - `/model` 切換 model，同時清空記憶重新開始
 - `/status` 顯示目前 provider、model、workspace、記憶狀態
 - `/reset` 只清空對話記憶，provider/model/workspace 都不變
+- `/attach <路徑>` 讀取電腦上任何位置的檔案（不限於目前 workspace），下一則你送出的訊息會自動附上這份內容一起給模型（見下方「讀取專案以外的檔案」）
 - `/skills` 列出可用 Skill
 - `/exit` 離開
 
@@ -269,6 +271,24 @@ node ./bin/local-code.js checkpoint complete
 ```
 
 只要該資料夾還有「進行中」（未標記完成）的 checkpoint，下次執行 `local-code chat` 時會自動在最上方顯示，提醒你從待辦步驟繼續，不用自己去找。
+
+## 讀取專案以外的檔案
+
+預設情況下，`list_files`／`read_file`／`search_text` 都只能看到目前 workspace 根目錄底下的檔案（跟 Claude Code 一樣，會擋掉 `../` 這種跳出 workspace 的路徑）。如果想讓模型分析電腦上其他地方的檔案，有兩種方式：
+
+- **`/attach <路徑>`（只在 `chat` 模式）**：像 Claude Code 拖檔案進來一樣，輸入絕對路徑（或相對於啟動 `local-code` 那個資料夾的相對路徑），例如：
+
+  ```
+  > /attach C:\Users\me\Desktop\error-log.txt
+  attached: C:\Users\me\Desktop\error-log.txt (1234 chars) - will be sent with your next message
+  > 幫我看這份 log 裡有什麼問題
+  ```
+
+  終端機會印出**解析後的絕對路徑**，讓你確認實際讀到的是哪個檔案；內容會在你送出下一則訊息時一併附上給模型，附加一次後就清空，不會重複夾帶。
+
+- **模型主動呼叫 `read_external_file`**：如果你在對話中直接提到一個專案外的絕對路徑，模型也可以自己呼叫這個工具讀取，不需要你先手動 `/attach`。
+
+兩種方式都是唯讀，不能寫入 workspace 以外的地方，單一檔案上限 2MB，且都會回傳（或印出）解析後的絕對路徑，方便確認讀到的是哪一份檔案。
 
 ## 背景子任務
 

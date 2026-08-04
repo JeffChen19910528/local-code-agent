@@ -86,6 +86,53 @@ test("workspace blocks path traversal", async () => {
   assert.throws(() => workspace.resolvePath("../outside.txt"), /escapes workspace/i);
 });
 
+test("workspace readExternalFile reads a file outside the workspace root by absolute path", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root);
+
+  const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-outside-"));
+  const outsideFile = path.join(outsideDir, "notes.txt");
+  await fs.writeFile(outsideFile, "external content");
+
+  const result = await workspace.readExternalFile(outsideFile);
+  assert.equal(result.path, outsideFile);
+  assert.equal(result.content, "external content");
+});
+
+test("workspace readExternalFile rejects a missing file", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root);
+
+  await assert.rejects(
+    workspace.readExternalFile(path.join(root, "does-not-exist.txt")),
+    /File not found/i
+  );
+});
+
+test("workspace readExternalFile rejects a directory", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root);
+  const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-outside-"));
+
+  await assert.rejects(
+    workspace.readExternalFile(outsideDir),
+    /Not a file/i
+  );
+});
+
+test("workspace readExternalFile rejects files larger than the size limit", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root);
+  const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-outside-"));
+  const bigFile = path.join(outsideDir, "big.txt");
+  await fs.writeFile(bigFile, Buffer.alloc(2 * 1024 * 1024 + 1, "a"));
+
+  await assert.rejects(
+    workspace.readExternalFile(bigFile),
+    /too large/i
+  );
+});
+
 test("workspace lists recent files in newest-first order", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
   const workspace = new Workspace(root, { allowWrites: true });
