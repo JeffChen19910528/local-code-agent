@@ -23,7 +23,11 @@ export function createOllamaProvider(config) {
 
       const data = await response.json();
       return {
-        content: data?.message?.content ?? ""
+        content: data?.message?.content ?? "",
+        usage: {
+          promptTokens: data?.prompt_eval_count ?? null,
+          completionTokens: data?.eval_count ?? null
+        }
       };
     },
     async listModels() {

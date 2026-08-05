@@ -116,6 +116,17 @@ function buildProgressHooks() {
     onStep(step) {
       console.error(`step ${step}: waiting for model...`);
     },
+    onModelResponse({ step, durationMs, usage }) {
+      const parts = [];
+      parts.push(durationMs >= 1000 ? `${(durationMs / 1000).toFixed(1)}s` : `${durationMs}ms`);
+      if (usage?.promptTokens != null) {
+        parts.push(`prompt ${usage.promptTokens.toLocaleString()} tok`);
+      }
+      if (usage?.completionTokens != null) {
+        parts.push(`gen ${usage.completionTokens.toLocaleString()} tok`);
+      }
+      console.error(`step ${step}: ${parts.join(" · ")}`);
+    },
     onReasoning({ step, text }) {
       console.error(`step ${step} thinking: ${truncateForLog(text, 200)}`);
     },

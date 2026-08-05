@@ -121,6 +121,46 @@ test("ask() auto-repairs a <tool_call> block containing raw control characters i
   });
 });
 
+test("ask() fires onModelResponse with duration and usage after each model call", async () => {
+  const responses = [
+    {
+      message: { content: "<tool_call>\n{\"tool\":\"list_files\",\"args\":{}}\n</tool_call>" },
+      prompt_eval_count: 450,
+      eval_count: 32
+    },
+    {
+      message: { content: "done" },
+      prompt_eval_count: 500,
+      eval_count: 8
+    }
+  ];
+
+  const events = [];
+
+  await withMockedFetch(responses, async () => {
+    const session = createAgentSession({
+      provider: "ollama",
+      model: "demo",
+      workspace: process.cwd(),
+      allowCommands: false,
+      maxSteps: 3,
+      temperature: 0.2,
+      ollamaBaseUrl: "http://127.0.0.1:11434"
+    }, {
+      onModelResponse(info) {
+        events.push(info);
+      }
+    });
+
+    await session.ask("list files");
+  });
+
+  assert.equal(events.length, 2, "one event per model call");
+  assert.ok(events[0].durationMs >= 0, "duration should be non-negative");
+  assert.deepEqual(events[0].usage, { promptTokens: 450, completionTokens: 32 });
+  assert.deepEqual(events[1].usage, { promptTokens: 500, completionTokens: 8 });
+});
+
 test("ask() auto-repairs a <tool_call> block with unescaped quotes in file content without retrying", async () => {
   // Model emits Python code with unescaped " inside the JSON content value
   const responses = [

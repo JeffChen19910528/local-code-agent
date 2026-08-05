@@ -19,7 +19,11 @@ export function createLmStudioProvider(config) {
 
       const data = await response.json();
       return {
-        content: data?.choices?.[0]?.message?.content ?? ""
+        content: data?.choices?.[0]?.message?.content ?? "",
+        usage: {
+          promptTokens: data?.usage?.prompt_tokens ?? null,
+          completionTokens: data?.usage?.completion_tokens ?? null
+        }
       };
     },
     async listModels() {

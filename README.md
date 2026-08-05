@@ -32,6 +32,7 @@
 - 用 `/名稱` 打關鍵字叫出自訂 Skill（見下方「Skill 系統」）
 - 任務進度 Checkpoint：存目標/待辦事項，並自動附上最近對話內容，跨 session 恢復（見下方「任務進度 Checkpoint」）
 - 背景子任務（`spawn_agent` / `check_agent` / `list_agents`）：模型遇到「多個彼此獨立」的子任務時，可以把其中一個丟到背景執行，自己繼續做別的事，之後再回來取結果（見下方「背景子任務」）
+- 每一步顯示推理時間與 token 消耗：每次模型回覆後自動印出耗時與 prompt / 生成 token 數，方便即時掌握模型速度與 context 使用量
 
 ## 安裝（推薦，跟 Claude Code 一樣）
 
@@ -183,6 +184,33 @@ local-code chat
 > /skills
 > /reviewer 看一下 src/agent.js 有沒有明顯 bug
 ```
+
+## 推理進度與 Token 消耗
+
+每次模型回覆後，CLI 會在終端機自動顯示該步驟的耗時與 token 使用量：
+
+```
+step 1: waiting for model...
+step 1: 2.3s · prompt 2,450 tok · gen 312 tok
+step 1 result: called tool "list_files" -> .
+step 2: waiting for model...
+step 2: 4.1s · prompt 2,680 tok · gen 847 tok
+step 2 result: called tool "write_file" -> scraper.py (1234 chars)
+```
+
+欄位說明：
+
+- **耗時**：整個 API 來回的實際等待時間（`< 1s` 顯示毫秒、`≥ 1s` 顯示秒）
+- **`prompt X tok`**：這一步送給模型的 prompt token 數（系統提示詞 + 完整對話歷史 + 工具結果，會隨步驟累積增加）
+- **`gen X tok`**：模型這一步生成的 token 數
+
+透過這些數字你可以：
+
+- 知道每一步模型在「思考」多久，哪個工具呼叫最耗時
+- 觀察 prompt token 是否接近模型的 context 上限（若快超過，考慮 `/reset` 清歷史或用較大的 `ollamaNumCtx`）
+- 比較不同模型的生成速度
+
+> Ollama 的 token 數由 API 直接回傳（`prompt_eval_count` / `eval_count`）；LM Studio 使用 OpenAI 格式的 `usage` 欄位。若 API 沒有回傳 token 資料，只會顯示耗時。
 
 ## Skill 系統
 

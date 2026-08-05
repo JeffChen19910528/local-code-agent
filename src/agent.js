@@ -42,9 +42,12 @@ export function createAgentSession(config, hooks = {}, options = {}) {
 
       for (let step = 1; step <= config.maxSteps; step += 1) {
         hooks.onStep?.(step);
+        const stepStartMs = Date.now();
         const reply = await provider.chat(messages);
+        const durationMs = Date.now() - stepStartMs;
         const content = String(reply.content ?? "").trim();
         messages.push({ role: "assistant", content });
+        hooks.onModelResponse?.({ step, durationMs, usage: reply.usage ?? null });
 
         let toolCall;
         let failureReason = null;
