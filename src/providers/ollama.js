@@ -10,6 +10,7 @@ export function createOllamaProvider(config) {
           model: config.model,
           messages,
           stream: false,
+          think: false,
           options: {
             temperature: config.temperature,
             num_ctx: config.ollamaNumCtx ?? 8192

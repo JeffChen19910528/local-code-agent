@@ -43,7 +43,28 @@ export function createAgentSession(config, hooks = {}, options = {}) {
       for (let step = 1; step <= config.maxSteps; step += 1) {
         hooks.onStep?.(step);
         const stepStartMs = Date.now();
-        const reply = await provider.chat(messages);
+        let reply;
+        try {
+          reply = await provider.chat(messages);
+        } catch (error) {
+          const providerMessage = error instanceof Error ? error.message : String(error);
+          consecutiveFailures = lastFailureSignature === "provider_error" ? consecutiveFailures + 1 : 1;
+          lastFailureSignature = "provider_error";
+          hooks.onToolCallError?.({ step, reason: "provider_error", message: providerMessage, attempt: consecutiveFailures });
+
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            return {
+              content: [
+                `此任務自動終止：模型端連續 ${consecutiveFailures} 次回報錯誤（${providerMessage}）。`,
+                "這通常代表目前這個模型/Provider 組合本身有問題（例如與這個工具的 tool-call 格式不相容），而不是暫時性的網路問題。建議換一個模型再試一次。"
+              ].join("\n"),
+              steps: step,
+              failed: true
+            };
+          }
+
+          continue;
+        }
         const durationMs = Date.now() - stepStartMs;
         const content = String(reply.content ?? "").trim();
         messages.push({ role: "assistant", content });
@@ -111,6 +132,30 @@ export function createAgentSession(config, hooks = {}, options = {}) {
           messages.push({
             role: "user",
             content: "你的回覆是空的。就算使用者的輸入有錯字、簡短或不完整，也請依照最合理的猜測直接執行或回答，不要保持沉默；如果需要用到工具，回傳一個 <tool_call> 區塊，否則至少用一句話回答。"
+          });
+          continue;
+        }
+
+        if (!toolCall && isUnfinishedIntent(content)) {
+          consecutiveFailures = lastFailureSignature === "unfinished_intent" ? consecutiveFailures + 1 : 1;
+          lastFailureSignature = "unfinished_intent";
+          hooks.onToolCallError?.({ step, reason: "unfinished_intent", message: "Model announced an action but did not issue a <tool_call>.", attempt: consecutiveFailures });
+
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            return {
+              content: [
+                content,
+                "",
+                "（注意：模型連續多次只講「將要做什麼」卻沒有實際呼叫工具，上面這段話可能沒有真的執行。建議换一個模型再試一次。）"
+              ].join("\n"),
+              steps: step,
+              failed: true
+            };
+          }
+
+          messages.push({
+            role: "user",
+            content: "你剛才說明了打算做什麼，但沒有在同一則回覆裡附上 <tool_call> 區塊，所以什麼都還沒執行。請直接發出對應的 <tool_call> 區塊來實際執行這個動作，不要只描述意圖。"
           });
           continue;
         }
@@ -298,6 +343,18 @@ function isTruncatedToolCall(content) {
   return /<tool_call>/i.test(content) && !/<\/tool_call>/i.test(content);
 }
 
+// Weaker local models sometimes announce an action ("let me check...", "讓我看看...")
+// instead of actually issuing a <tool_call>, then stop - the harness would otherwise treat
+// that announcement as the final answer. Heuristic: short reply, no tool_call, and it ends
+// on an intent phrase rather than a completed statement.
+const INTENT_PHRASE = /(讓我|我來|我將|我會|首先讓我|接下來我|我先|我需要先|let me |i will |i'll |i am going to |i'm going to |first,? i |i need to first)/i;
+
+function isUnfinishedIntent(content) {
+  if (!content || content.length > 200) return false;
+  if (/<tool_call>/i.test(content)) return false;
+  return INTENT_PHRASE.test(content);
+}
+
 function createProvider(config) {
   if (config.provider === "ollama") {
     return createOllamaProvider(config);
@@ -320,6 +377,7 @@ export function buildSystemPrompt(config, tools) {
     "{\"tool\":\"read_file\",\"args\":{\"path\":\"src/index.js\"}}",
     "</tool_call>",
     "Do not wrap the XML block in markdown fences.",
+    "Never say you are about to do something (e.g. \"let me check\", \"first I will look at\", \"讓我看看\", \"我將確認\") without including the matching <tool_call> block in that same reply. If you intend to act, act in this reply - do not announce an action and stop.",
     "After receiving a tool result, continue until you can provide a final answer.",
     "Prefer small, precise edits.",
     "When writing code longer than about 40 lines, first write_file a small skeleton (imports and function signatures), then use append_file one or more times to add the rest in smaller pieces. Keep each tool call's content short so it stays valid JSON and does not get cut off.",

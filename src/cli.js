@@ -134,7 +134,14 @@ function buildProgressHooks() {
       console.error(`step result: called tool "${toolCall.tool}" -> ${summarizeToolCall(toolCall)}`);
     },
     onToolCallError({ step, reason, message, attempt }) {
-      const label = reason === "truncated" ? "reply cut off (length limit)" : "invalid tool call JSON";
+      const labels = {
+        truncated: "reply cut off (length limit)",
+        invalid_json: "invalid tool call JSON",
+        empty_output: "empty reply",
+        unfinished_intent: "model announced an action but didn't call a tool",
+        provider_error: "provider/model request failed"
+      };
+      const label = labels[reason] ?? reason;
       console.error(`step ${step} result: ${label}, asking model to retry (attempt ${attempt})`);
       if (message) {
         console.error(`  ${message}`);

@@ -359,6 +359,9 @@ node ./bin/local-code.js checkpoint complete
 - 語法檢查目前只支援 `.py`（需要系統裝有 `python`/`python3`/`py`）與 `.js`/`.mjs`（用 Node 內建 `--check`），其他副檔名不會檢查
 - Skill 觸發只支援明確的 `/名稱` 前綴，沒有 Claude Code 那種依描述語意自動判斷要不要用某個 Skill 的能力
 - 模型偶爾會在自然語言回答裡「宣稱」做了某件事但實際沒有呼叫工具（幻覺）；system prompt 已要求模型有實際工具結果才能宣稱成功、被問到檔案在哪要先查證，但無法 100% 杜絕，遇到可疑的回答可以直接請它用 `list_files`/`read_file` 再次確認
+- 較弱的本地模型有時只會回一句「讓我看看/我將確認一下」之類的意圖描述、卻沒有在同一則回覆裡附上 `<tool_call>`；CLI 會偵測這種「只講意圖沒動作」的回覆並自動要求模型補發真正的 `<tool_call>`，連續三次仍是如此才會放棄並清楚回報（而不是把那句話當成任務已完成的最終答案）
+- 部分具備「思考」模式的模型（例如 GLM 系列）透過 Ollama 呼叫時，預設會把整段推理塞進獨立的 `thinking` 欄位、`content` 留空，導致原本該有的回覆消失；CLI 呼叫 Ollama 時已固定帶上 `think: false` 來避免這個情況，對不支援思考模式的模型是無害的
+- 少數模型（觀察到 GLM 系列）的 Ollama 對話模板內建原生 tool-calling 解析器，可能誤判本工具自訂的 `<tool_call>{"tool":...}</tool_call>` 純文字協議、回傳 HTTP 500 錯誤；CLI 會把這類 provider 端錯誤當成可重試的失敗處理，連續三次才會停止並清楚回報，不會讓整個 `run`/`chat` 直接崩潰
 
 ## Workspace 掃描的容錯處理
 
