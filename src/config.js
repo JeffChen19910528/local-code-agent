@@ -30,6 +30,9 @@ export async function loadConfig(cwd, cliOptions = {}) {
   merged.maxSteps = Number(merged.maxSteps) || DEFAULTS.maxSteps;
   merged.maxConcurrentAgents = Number(merged.maxConcurrentAgents) || DEFAULTS.maxConcurrentAgents;
   merged.temperature = Number(merged.temperature);
+  if (merged.ollamaNumCtx != null) {
+    merged.ollamaNumCtx = Number(merged.ollamaNumCtx) || undefined;
+  }
   if (Number.isNaN(merged.temperature)) {
     merged.temperature = DEFAULTS.temperature;
   }
@@ -69,6 +72,7 @@ function readEnvConfig() {
     model: process.env.LOCAL_CODE_MODEL,
     ollamaBaseUrl: process.env.OLLAMA_BASE_URL,
     lmStudioBaseUrl: process.env.LM_STUDIO_BASE_URL,
+    ollamaNumCtx: process.env.LOCAL_CODE_OLLAMA_NUM_CTX,
     allowCommands: parseBoolean(process.env.LOCAL_CODE_ALLOW_COMMANDS),
     allowWrites: parseBoolean(process.env.LOCAL_CODE_ALLOW_WRITES),
     allowNetwork: parseBoolean(process.env.LOCAL_CODE_ALLOW_NETWORK)

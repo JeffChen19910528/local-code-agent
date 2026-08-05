@@ -121,6 +121,46 @@ test("ask() auto-repairs a <tool_call> block containing raw control characters i
   });
 });
 
+test("ask() auto-repairs a <tool_call> block with unescaped quotes in file content without retrying", async () => {
+  // Model emits Python code with unescaped " inside the JSON content value
+  const responses = [
+    {
+      message: {
+        content:
+          '<tool_call>\n' +
+          '{"tool":"write_file","args":{"path":"x.py","content":"print("hello")"}}\n' +
+          '</tool_call>'
+      }
+    },
+    { message: { content: "done" } }
+  ];
+
+  await withMockedFetch(responses, async () => {
+    const session = createAgentSession({
+      provider: "ollama",
+      model: "demo",
+      workspace: process.cwd(),
+      allowCommands: false,
+      maxSteps: 3,
+      temperature: 0.2,
+      ollamaBaseUrl: "http://127.0.0.1:11434"
+    }, {});
+
+    const result = await session.ask("write a script");
+    assert.equal(result.content, "done");
+
+    const errorMessage = session
+      .getHistory()
+      .find((message) => message.content.includes("<tool_call_error>"));
+    assert.equal(errorMessage, undefined, "should not need a retry round-trip for an auto-repairable unescaped-quote error");
+
+    const toolResultMessage = session
+      .getHistory()
+      .find((message) => message.content.includes("<tool_result"));
+    assert.ok(toolResultMessage, "expected the repaired tool call to actually execute");
+  });
+});
+
 test("ask() recovers from a malformed <tool_call> block that cannot be auto-repaired", async () => {
   const responses = [
     { message: { content: "<tool_call>\n{\"tool\":\"write_file\", \"args\": {,}}\n</tool_call>" } },

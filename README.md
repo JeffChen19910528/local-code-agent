@@ -101,6 +101,7 @@ node ./bin/local-code.js init
   "workspace": ".",
   "ollamaBaseUrl": "http://127.0.0.1:11434",
   "lmStudioBaseUrl": "http://127.0.0.1:1234",
+  "ollamaNumCtx": 8192,
   "maxSteps": 12,
   "allowCommands": false,
   "allowWrites": false,
@@ -108,6 +109,8 @@ node ./bin/local-code.js init
   "temperature": 0.2
 }
 ```
+
+`ollamaNumCtx`（選填）：Ollama 的 context window 大小，單位 token。**預設值為 `8192`**（工具已自動設定，無需手動調整）。若你的 GPU 記憶體有限需要縮小，或想換更大值以支援更長對話，可在此欄位覆蓋，也可用環境變數 `LOCAL_CODE_OLLAMA_NUM_CTX` 設定。
 
 `provider` 或 `model` 留空時，程式會在啟動時互動式詢問使用者。
 如果目前終端不是互動模式，程式會輸出完整的 provider 診斷摘要。
@@ -324,8 +327,7 @@ node ./bin/local-code.js checkpoint complete
 ## 限制
 
 - 目前仍是 MVP，不是完整複刻 Claude Code
-- 工具呼叫仍採 prompt 協議，不是原生 function calling，本地小型模型偶爾會把大段程式碼包進 JSON 時跳脫字元出錯或被輸出長度截斷（CLI 會自動重試、多次失敗會清楚回報而不是靜默卡住，但無法保證每次都成功）
-- `replace_in_file` 仍是字串替換，不是 AST 或 diff patch
+- 工具呼叫仍採 prompt 協議，不是原生 function calling，本地小型模型偶爾會把大段程式碼包進 JSON 時跳脫字元出錯或被輸出長度截斷；CLI 會依序嘗試三種自動修復策略（控制字元修復 → 未跳脫引號提取 → 模型重試），多次失敗才會放棄並清楚回報，但無法保證每次都成功。遇到連續失敗時，建議把任務拆小（例如先用 `write_file` 寫骨架、再用 `append_file` 分段補內容）或換用較大的模型- `replace_in_file` 仍是字串替換，不是 AST 或 diff patch
 - 語法檢查目前只支援 `.py`（需要系統裝有 `python`/`python3`/`py`）與 `.js`/`.mjs`（用 Node 內建 `--check`），其他副檔名不會檢查
 - Skill 觸發只支援明確的 `/名稱` 前綴，沒有 Claude Code 那種依描述語意自動判斷要不要用某個 Skill 的能力
 - 模型偶爾會在自然語言回答裡「宣稱」做了某件事但實際沒有呼叫工具（幻覺）；system prompt 已要求模型有實際工具結果才能宣稱成功、被問到檔案在哪要先查證，但無法 100% 杜絕，遇到可疑的回答可以直接請它用 `list_files`/`read_file` 再次確認
