@@ -13,7 +13,7 @@ export function createOllamaProvider(config) {
           think: false,
           options: {
             temperature: config.temperature,
-            num_ctx: config.ollamaNumCtx ?? 8192
+            num_ctx: config.ollamaNumCtx ?? 32768
           }
         })
       });

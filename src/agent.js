@@ -218,14 +218,19 @@ export function extractToolCall(content) {
     try {
       payload = JSON.parse(repairControlCharacters(raw));
     } catch {
-      const repairedRaw = tryExtractLargeContent(raw);
-      if (repairedRaw !== null) {
-        try {
-          payload = JSON.parse(repairedRaw);
-        } catch {
-          throw new Error(`Invalid tool call JSON: ${firstError.message}`);
+      let repaired = lenientParseToolCall(raw);
+      if (repaired === null) {
+        const repairedRaw = tryExtractLargeContent(raw);
+        if (repairedRaw !== null) {
+          try {
+            repaired = JSON.parse(repairedRaw);
+          } catch {
+            repaired = null;
+          }
         }
-      } else {
+      }
+      payload = repaired;
+      if (payload === null) {
         throw new Error(`Invalid tool call JSON: ${firstError.message}`);
       }
     }
@@ -296,6 +301,133 @@ function unescapeJsonStringValue(raw) {
     }
   }
   return result;
+}
+
+// Last-resort repair for weak local models: reparses the tool call by hand, tolerant of
+// unescaped quotes/newlines inside ANY string argument (not just write_file/append_file's
+// "content"), and independent of key order. Only kicks in once JSON.parse and the narrower
+// repairs above have already failed. Walks the args object field by field; for each string
+// value it scans forward for the first unescaped `"` that is plausibly a real terminator
+// (immediately followed by `,"nextKey":` or by `}`) rather than stopping at the first quote,
+// which is what breaks JSON.parse when the model forgets to escape a quote mid-content.
+function lenientParseToolCall(raw) {
+  const toolMatch = raw.match(/"tool"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
+  if (!toolMatch) return null;
+  const tool = unescapeJsonStringValue(toolMatch[1]);
+
+  const argsKeyMatch = raw.match(/"args"\s*:\s*\{/);
+  if (!argsKeyMatch) return null;
+
+  let i = argsKeyMatch.index + argsKeyMatch[0].length;
+  const args = {};
+  let firstField = true;
+
+  while (i < raw.length) {
+    while (i < raw.length && /\s/.test(raw[i])) i += 1;
+    if (i >= raw.length) return null;
+    if (raw[i] === "}") {
+      i += 1;
+      return { tool, args };
+    }
+
+    if (!firstField) {
+      if (raw[i] !== ",") return null;
+      i += 1;
+      while (i < raw.length && /\s/.test(raw[i])) i += 1;
+    }
+    firstField = false;
+
+    const keyMatch = raw.slice(i).match(/^"([A-Za-z_][A-Za-z0-9_]*)"\s*:\s*/);
+    if (!keyMatch) return null;
+    const key = keyMatch[1];
+    i += keyMatch[0].length;
+
+    if (raw[i] === '"') {
+      const start = i + 1;
+      const end = findLenientStringEnd(raw, start);
+      if (end === -1) return null;
+      args[key] = unescapeJsonStringValue(raw.slice(start, end));
+      i = end + 1;
+    } else if (raw[i] === "[") {
+      const end = findMatchingBracket(raw, i, "[", "]");
+      if (end === -1) return null;
+      try {
+        args[key] = JSON.parse(raw.slice(i, end + 1));
+      } catch {
+        return null;
+      }
+      i = end + 1;
+    } else if (raw[i] === "{") {
+      const end = findMatchingBracket(raw, i, "{", "}");
+      if (end === -1) return null;
+      try {
+        args[key] = JSON.parse(raw.slice(i, end + 1));
+      } catch {
+        return null;
+      }
+      i = end + 1;
+    } else {
+      const tokenMatch = raw.slice(i).match(/^(true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/);
+      if (!tokenMatch) return null;
+      args[key] = JSON.parse(tokenMatch[1]);
+      i += tokenMatch[0].length;
+    }
+  }
+
+  return null;
+}
+
+// Finds the end of a lenient string value starting right after its opening quote: the first
+// unescaped `"` that looks like a genuine terminator (followed by `,"nextKey":` or `}`),
+// rather than the first unescaped quote encountered (which may just be inside the content).
+function findLenientStringEnd(raw, start) {
+  let i = start;
+  while (i < raw.length) {
+    if (raw[i] === '"') {
+      let backslashes = 0;
+      let j = i - 1;
+      while (j >= start - 1 && raw[j] === "\\") {
+        backslashes += 1;
+        j -= 1;
+      }
+      if (backslashes % 2 === 0) {
+        const rest = raw.slice(i + 1);
+        if (/^\s*(,\s*"[A-Za-z_][A-Za-z0-9_]*"\s*:|\})/.test(rest)) {
+          return i;
+        }
+      }
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+// Finds the index of the bracket/brace matching the one at `start`, treating quoted strings
+// (with JSON escaping) as opaque so brackets inside string content don't confuse the count.
+function findMatchingBracket(raw, start, open, close) {
+  let depth = 0;
+  let i = start;
+  while (i < raw.length) {
+    const char = raw[i];
+    if (char === '"') {
+      i += 1;
+      while (i < raw.length) {
+        if (raw[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (raw[i] === '"') break;
+        i += 1;
+      }
+    } else if (char === open) {
+      depth += 1;
+    } else if (char === close) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+    i += 1;
+  }
+  return -1;
 }
 
 // Some local models emit unescaped double quotes inside write_file/append_file content,

@@ -102,7 +102,7 @@ node ./bin/local-code.js init
   "workspace": ".",
   "ollamaBaseUrl": "http://127.0.0.1:11434",
   "lmStudioBaseUrl": "http://127.0.0.1:1234",
-  "ollamaNumCtx": 8192,
+  "ollamaNumCtx": 32768,
   "maxSteps": 12,
   "allowCommands": false,
   "allowWrites": false,
@@ -111,7 +111,7 @@ node ./bin/local-code.js init
 }
 ```
 
-`ollamaNumCtx`（選填）：Ollama 的 context window 大小，單位 token。**預設值為 `8192`**（工具已自動設定，無需手動調整）。若你的 GPU 記憶體有限需要縮小，或想換更大值以支援更長對話，可在此欄位覆蓋，也可用環境變數 `LOCAL_CODE_OLLAMA_NUM_CTX` 設定。
+`ollamaNumCtx`（選填）：Ollama 的 context window 大小，單位 token。**預設值為 `32768`**（工具已自動設定，無需手動調整）。像 `web_fetch` 抓回來的整頁內容、或多輪對話疊加的工具結果，很容易超過舊版預設的 8192，導致模型回覆被截斷（`回覆內容被長度限制截斷`）。若你的 GPU 記憶體有限需要縮小，或想換更大值以支援更長對話，可在此欄位覆蓋，也可用環境變數 `LOCAL_CODE_OLLAMA_NUM_CTX` 設定。
 
 `provider` 或 `model` 留空時，程式會在啟動時互動式詢問使用者。
 如果目前終端不是互動模式，程式會輸出完整的 provider 診斷摘要。
