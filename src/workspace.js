@@ -192,12 +192,16 @@ export class Workspace {
     });
   }
 
-  async fetchUrl(targetUrl, { approved = false, maxChars = 8000 } = {}) {
+  async fetchUrl(targetUrl, { approved = false, maxChars = 8000, render = false } = {}) {
     this.assertNetworkApproved(approved);
 
     const parsed = new URL(targetUrl);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       throw new Error(`Unsupported URL protocol: ${parsed.protocol}`);
+    }
+
+    if (render) {
+      return fetchRenderedUrl(parsed.toString(), maxChars);
     }
 
     const response = await fetchWithTimeout(parsed.toString());
@@ -252,9 +256,9 @@ export class Workspace {
   }
 }
 
-async function fetchWithTimeout(url, options = {}) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = NETWORK_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, {
       ...options,
@@ -264,6 +268,47 @@ async function fetchWithTimeout(url, options = {}) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Renders a page's JavaScript server-side via the public Jina AI Reader (r.jina.ai) and
+// returns the resulting clean Markdown - a plain fetchUrl() only gets raw HTML and cannot
+// execute JS, so client-side-rendered pages (common on official/government sites and many
+// weather sites) come back as near-empty navigation/app-shell boilerplate with none of the
+// actual content. Reader rendering takes longer than a plain fetch, hence the larger timeout.
+const RENDER_TIMEOUT_MS = 45000;
+
+async function fetchRenderedUrl(url, maxChars) {
+  const response = await fetchWithTimeout(`https://r.jina.ai/${url}`, {}, RENDER_TIMEOUT_MS);
+  if (!response.ok) {
+    throw new Error(`Rendered fetch failed: ${response.status} ${response.statusText}`);
+  }
+
+  const markdown = await response.text();
+  const titleMatch = markdown.match(/^Title:\s*(.+)$/m);
+  const title = titleMatch ? titleMatch[1].trim() : "";
+  const text = stripNavLinkLines(markdown);
+
+  return {
+    url,
+    title,
+    text: text.length > maxChars ? `${text.slice(0, maxChars)}...` : text
+  };
+}
+
+// Reader-rendered Markdown from a nav-heavy site is dominated by lines that are just a bullet
+// wrapping a single link ("*   [標題](https://... \"title\")") - these are menu/nav items, not
+// page content, and on sites with deep mega-menus they can push the actual content tens of
+// thousands of characters past maxChars before it's ever seen. Real content (prose, tables,
+// numbers) is essentially never formatted as one lone link per line, so dropping those lines
+// is a safe, site-agnostic way to raise the useful-content density before truncating.
+const NAV_LINK_LINE = /^\s*[*-]\s*\[.*\]\([^)]*\)\s*$/;
+
+function stripNavLinkLines(markdown) {
+  return markdown
+    .split("\n")
+    .filter((line) => !NAV_LINK_LINE.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
 }
 
 function resolveDuckDuckGoUrl(href) {

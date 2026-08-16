@@ -56,10 +56,11 @@ test("buildSystemPrompt tells the model to use the injected <current_datetime> t
   assert.match(prompt, /resolve relative terms like "today", "tomorrow", "this week"/);
 });
 
-test("buildSystemPrompt points the model at wttr.in when web_fetch only returns JS-app boilerplate", () => {
+test("buildSystemPrompt tells the model to retry with render:true when web_fetch only returns JS-app boilerplate", () => {
   const prompt = buildSystemPrompt({ workspace: process.cwd() }, []);
 
-  assert.match(prompt, /web_fetch only reads a page's raw HTML - it cannot run JavaScript/);
+  assert.match(prompt, /web_fetch's plain mode only reads a page's raw HTML - it cannot run JavaScript/);
+  assert.match(prompt, /call web_fetch again on the SAME url with render:true/);
   assert.match(prompt, /wttr\.in\/<city>\?format=j1/);
   assert.match(prompt, /wttr\.in\/<city>\?format=4/);
 });

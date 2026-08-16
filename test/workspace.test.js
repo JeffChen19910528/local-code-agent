@@ -149,3 +149,84 @@ test("workspace lists recent files in newest-first order", async () => {
   assert.equal(recent[0].path, "b.txt");
   assert.equal(recent[1].path, "a.txt");
 });
+
+async function withMockedFetch(handler, run) {
+  const originalFetch = global.fetch;
+  global.fetch = handler;
+  try {
+    await run();
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+test("workspace fetchUrl strips HTML tags and extracts the title by default", async () => {
+  const workspace = new Workspace(process.cwd());
+
+  await withMockedFetch(
+    async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () => "<html><head><title>Example</title></head><body><nav>menu</nav><p>Hello <b>world</b></p></body></html>"
+    }),
+    async () => {
+      const result = await workspace.fetchUrl("https://example.com", { approved: true });
+      assert.equal(result.title, "Example");
+      assert.equal(result.text, "Example menu Hello world");
+    }
+  );
+});
+
+test("workspace fetchUrl with render:true fetches through the Jina reader and returns Markdown as-is", async () => {
+  const workspace = new Workspace(process.cwd());
+  let requestedUrl;
+
+  await withMockedFetch(
+    async (url) => {
+      requestedUrl = url;
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: async () => "Title: Example Page\n\nURL Source: https://example.com\n\nMarkdown Content:\n# Real content that only JS would normally render"
+      };
+    },
+    async () => {
+      const result = await workspace.fetchUrl("https://example.com", { approved: true, render: true });
+      assert.equal(requestedUrl, "https://r.jina.ai/https://example.com/");
+      assert.equal(result.title, "Example Page");
+      assert.match(result.text, /Real content that only JS would normally render/);
+    }
+  );
+});
+
+test("workspace fetchUrl with render:true strips link-only nav lines so real content isn't pushed past maxChars", async () => {
+  const workspace = new Workspace(process.cwd());
+  const navLines = Array.from(
+    { length: 50 },
+    (_, index) => `*   [Nav item ${index}](https://example.com/nav-${index} "Nav item ${index}")`
+  ).join("\n");
+  const rendered = `Title: County Weather\n\nMarkdown Content:\n${navLines}\n\n今日天氣晴，氣溫27至35度，降雨機率90%。`;
+
+  await withMockedFetch(
+    async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () => rendered
+    }),
+    async () => {
+      // maxChars is well below the raw nav-menu size, but comfortably above the filtered size,
+      // so this only passes if the pure link-list lines were actually dropped before truncating.
+      const result = await workspace.fetchUrl("https://example.com/weather", {
+        approved: true,
+        render: true,
+        maxChars: 300
+      });
+
+      assert.doesNotMatch(result.text, /Nav item/);
+      assert.match(result.text, /氣溫27至35度，降雨機率90%/);
+    }
+  );
+});

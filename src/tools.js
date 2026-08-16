@@ -111,12 +111,14 @@ export function createToolset(workspace, config = null) {
       description: [
         "Fetch a web page by URL and return its title and readable text content (HTML tags stripped, truncated to maxChars).",
         "Use this to read a specific page, e.g. a result from web_search or a URL the user gave you.",
+        "Plain fetch (render omitted/false) only gets raw HTML - it cannot run JavaScript. If the result comes back as mostly navigation/menu boilerplate with no real content (common on official/government sites and many weather/dashboard-style sites that render their content client-side), call web_fetch again on the SAME url with render:true - this renders the page's JavaScript server-side via a reader service and returns the actual content as Markdown (with obvious link-only nav lines already filtered out). It takes longer, so only use it as a fallback after a plain fetch clearly failed to get useful content, not as the default. Default maxChars is larger for render:true (20000 vs 8000) since real content can still sit well past the fold on a nav-heavy page - if it's still all boilerplate at that point, retry once more with an even larger maxChars rather than giving up.",
         "Unless the session was started with --allow-network, the user is asked to approve each network request in the terminal before it runs."
       ].join(" "),
-      args: { url: "string", maxChars: "number?" },
-      run: async ({ url, maxChars = 8000 }) => {
+      args: { url: "string", maxChars: "number?", render: "boolean?" },
+      run: async ({ url, maxChars, render = false }) => {
         const approved = await approveNetwork(workspace, { action: "web_fetch", detail: url });
-        return workspace.fetchUrl(url, { approved, maxChars });
+        const effectiveMaxChars = maxChars ?? (render ? 20000 : 8000);
+        return workspace.fetchUrl(url, { approved, maxChars: effectiveMaxChars, render });
       }
     },
     spawn_agent: {
