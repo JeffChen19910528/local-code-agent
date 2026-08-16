@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildProviderProblemMessage,
+  buildRepairGuidance,
   pickAutoProvider,
   summarizeProvider
 } from "../src/runtime.js";
@@ -50,4 +51,59 @@ test("buildProviderProblemMessage explains missing models", () => {
 
   assert.match(message, /no local models/i);
   assert.match(message, /Download a local model in LM Studio\./);
+});
+
+test("buildRepairGuidance tells the user to install when Ollama is missing", () => {
+  const guidance = buildRepairGuidance({
+    provider: "ollama",
+    label: "Ollama",
+    installed: false,
+    serverReachable: false,
+    models: [],
+    installHints: ["Install Ollama from https://ollama.com/download"],
+    serverHints: [],
+    modelHints: []
+  });
+
+  assert.match(guidance, /not installed/);
+  assert.match(guidance, /Install Ollama from https:\/\/ollama\.com\/download/);
+});
+
+test("buildRepairGuidance suggests restarting the service when the API is offline", () => {
+  const guidance = buildRepairGuidance({
+    provider: "ollama",
+    label: "Ollama",
+    installed: true,
+    serverReachable: false,
+    models: [],
+    installHints: [],
+    serverHints: ["Start Ollama and confirm the local server is running."],
+    modelHints: []
+  });
+
+  assert.match(guidance, /local API offline/);
+  assert.match(guidance, /Start Ollama and confirm the local server is running\./);
+});
+
+test("buildRepairGuidance gives restart/reinstall steps when the provider looks ready but a request just failed", () => {
+  const guidance = buildRepairGuidance(
+    {
+      provider: "ollama",
+      label: "Ollama",
+      installed: true,
+      serverReachable: true,
+      models: ["qwen2.5-coder:7b"],
+      version: "ollama version is 0.4.1",
+      installHints: [],
+      serverHints: [],
+      modelHints: []
+    },
+    { model: "qwen2.5-coder:7b", providerErrorMessage: "Ollama request failed: 500 Internal Server Error" }
+  );
+
+  assert.match(guidance, /剛更新過/);
+  assert.match(guidance, /ollama serve/);
+  assert.match(guidance, /ollama run qwen2\.5-coder:7b/);
+  assert.match(guidance, /ollama version is 0\.4\.1/);
+  assert.match(guidance, /500 Internal Server Error/);
 });

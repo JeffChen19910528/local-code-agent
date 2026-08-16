@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-export const RESERVED_NAMES = new Set(["exit", "provider", "model", "status", "skills", "reset"]);
+export const RESERVED_NAMES = new Set(["exit", "provider", "model", "status", "skills", "reset", "repair", "doctor"]);
 
 export function parseSkillFile(raw, sourcePath, scope) {
   const frontmatterMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);

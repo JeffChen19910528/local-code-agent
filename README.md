@@ -257,7 +257,7 @@ local-code run "/reviewer 檢查 src/agent.js"
 Task: 檢查 src/agent.js
 ```
 
-保留字（不能拿來當 Skill 名稱或別名，會被忽略並印出警告）：`exit`、`provider`、`model`、`status`、`skills`。
+保留字（不能拿來當 Skill 名稱或別名，會被忽略並印出警告）：`exit`、`provider`、`model`、`status`、`skills`、`reset`、`repair`、`doctor`。
 
 `chat` 模式內也可以用 `/skills` 列出可用 Skill，或直接打 `/名稱 ...` 觸發。
 
@@ -270,12 +270,15 @@ Chat 內建指令：
 - `/provider` 切換 provider，同時清空記憶重新開始
 - `/model` 切換 model，同時清空記憶重新開始
 - `/status` 顯示目前 provider、model、workspace、記憶狀態
+- `/repair`（或 `/doctor`）診斷目前這個 provider：有沒有安裝、本機 API 有沒有連線、有沒有模型、（Ollama）偵測到的版本號，並印出對應的中文修復步驟
 - `/reset` 只清空對話記憶，provider/model/workspace 都不變
 - `/attach <路徑>` 讀取電腦上任何位置的檔案（不限於目前 workspace），下一則你送出的訊息會自動附上這份內容一起給模型（見下方「讀取專案以外的檔案」）
 - `/skills` 列出可用 Skill
 - `/exit` 離開
 
 **什麼時候要用 `/reset`：** 對話記憶會把過去的 `<tool_result>`（包含失敗訊息）一起還原給模型。如果你升級了 `local-code`（例如修了某個工具的 bug）、或改了 `--allow-commands` 之類的設定，但這個資料夾的 chat 記憶裡還留著「舊版工具失敗」的紀錄，模型會傾向照著自己之前講過的話回答，即使新版工具其實已經能做到了，也可能還是說「我做不到」。這時候打 `/reset` 清掉舊記憶重新開始，模型才會重新嘗試。
+
+**Provider 連線壞掉時怎麼辦：** 如果聊天時連續 3 次收到「provider/model request failed」（例如剛更新完 Ollama 之後常見的 `500 Internal Server Error` 或 `fetch failed`），CLI 會自動跑一次診斷，並在最終訊息附上具體修復建議（例如「完全結束 Ollama 再重開」「執行 `ollama serve` 看有沒有錯誤」「執行 `ollama -v` 確認版本，必要時到官網重新下載安裝覆蓋」），不用等到失敗也可以隨時手動打 `/repair` 檢查。這個檢查只會讀取狀態、印出建議，不會自動幫你重啟服務或重新安裝。
 
 ## 任務進度 Checkpoint
 
@@ -361,7 +364,7 @@ node ./bin/local-code.js checkpoint complete
 - 模型偶爾會在自然語言回答裡「宣稱」做了某件事但實際沒有呼叫工具（幻覺）；system prompt 已要求模型有實際工具結果才能宣稱成功、被問到檔案在哪要先查證，但無法 100% 杜絕，遇到可疑的回答可以直接請它用 `list_files`/`read_file` 再次確認
 - 較弱的本地模型有時只會回一句「讓我看看/我將確認一下」之類的意圖描述、卻沒有在同一則回覆裡附上 `<tool_call>`；CLI 會偵測這種「只講意圖沒動作」的回覆並自動要求模型補發真正的 `<tool_call>`，連續三次仍是如此才會放棄並清楚回報（而不是把那句話當成任務已完成的最終答案）
 - 部分具備「思考」模式的模型（例如 GLM 系列）透過 Ollama 呼叫時，預設會把整段推理塞進獨立的 `thinking` 欄位、`content` 留空，導致原本該有的回覆消失；CLI 呼叫 Ollama 時已固定帶上 `think: false` 來避免這個情況，對不支援思考模式的模型是無害的
-- 少數模型（觀察到 GLM 系列）的 Ollama 對話模板內建原生 tool-calling 解析器，可能誤判本工具自訂的 `<tool_call>{"tool":...}</tool_call>` 純文字協議、回傳 HTTP 500 錯誤；CLI 會把這類 provider 端錯誤當成可重試的失敗處理，連續三次才會停止並清楚回報，不會讓整個 `run`/`chat` 直接崩潰
+- 少數模型（觀察到 GLM 系列）的 Ollama 對話模板內建原生 tool-calling 解析器，可能誤判本工具自訂的 `<tool_call>{"tool":...}</tool_call>` 純文字協議、回傳 HTTP 500 錯誤；CLI 會把這類 provider 端錯誤當成可重試的失敗處理，連續三次才會停止並清楚回報，不會讓整個 `run`/`chat` 直接崩潰；停止時會順便跑一次 provider 診斷（見上方「Provider 連線壞掉時怎麼辦」），把「服務沒開/沒裝/剛更新完不穩」跟「這個模型本身跟工具協議不相容」區分開來
 
 ## Workspace 掃描的容錯處理
 

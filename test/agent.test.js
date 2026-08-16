@@ -367,6 +367,40 @@ test("ask() gives up early and reports failure after repeated identical tool_cal
   });
 });
 
+test("ask() gives up after repeated provider errors and includes repair guidance", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => {
+    throw new Error("fetch failed");
+  };
+
+  const errorEvents = [];
+
+  try {
+    const session = createAgentSession({
+      provider: "ollama",
+      model: "demo",
+      workspace: process.cwd(),
+      allowCommands: false,
+      maxSteps: 10,
+      temperature: 0.2,
+      ollamaBaseUrl: "http://127.0.0.1:11434"
+    }, {
+      onToolCallError(info) {
+        errorEvents.push(info);
+      }
+    });
+
+    const result = await session.ask("write something");
+    assert.equal(result.failed, true);
+    assert.match(result.content, /連續 3 次/);
+    assert.match(result.content, /診斷結果/);
+    assert.equal(errorEvents.length, 3);
+    assert.equal(errorEvents[2].reason, "provider_error");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("ask() flags a genuinely empty final answer as failed", async () => {
   const responses = [{ message: { content: "" } }];
 

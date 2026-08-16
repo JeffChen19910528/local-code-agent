@@ -9,6 +9,8 @@ import { createAgentSession, listProviderModels, runAgent } from "./agent.js";
 import {
   buildProviderDiagnostics,
   buildProviderProblemMessage,
+  buildRepairGuidance,
+  diagnoseProvider,
   getProviderUnavailableReason,
   inspectProviders,
   isProviderReady,
@@ -241,7 +243,7 @@ async function runChat(config, skills) {
   let pendingAttachments = [];
 
   console.log(`local-code chat (${activeConfig.provider}:${activeConfig.model || "no-model"})`);
-  console.log("Type /exit to quit. Use /provider, /model, /status, /checkpoint, /attach, or /reset during chat.");
+  console.log("Type /exit to quit. Use /provider, /model, /status, /repair, /checkpoint, /attach, or /reset during chat.");
   if (chatState.history.length > 0) {
     console.log(`restored saved chat history (${countUserTurns(chatState.history)} turn(s))`);
     console.log("If the model keeps repeating an outdated claim (e.g. from before a tool was fixed), try /reset to start fresh.");
@@ -266,6 +268,11 @@ async function runChat(config, skills) {
 
       if (prompt === "/status") {
         console.log(renderChatStatus(activeConfig, chatState));
+        continue;
+      }
+
+      if (prompt === "/repair" || prompt === "/doctor") {
+        await runRepairCommand(activeConfig);
         continue;
       }
 
@@ -386,6 +393,16 @@ async function runChat(config, skills) {
     }
   } finally {
     closeSharedReadline();
+  }
+}
+
+async function runRepairCommand(config) {
+  console.log(`正在檢查目前的 provider（${config.provider}）...`);
+  try {
+    const status = await withSpinner("Diagnosing provider...", () => diagnoseProvider(config, config.provider));
+    console.log(buildRepairGuidance(status, { model: config.model }));
+  } catch (error) {
+    console.log(`診斷時發生錯誤：${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -635,6 +652,9 @@ Chat commands:
   /provider            Switch provider and model without restarting chat
   /model               Switch model for the current provider
   /status              Show current provider, model, workspace, and saved chat info
+  /repair (or /doctor) Diagnose the current provider (install/server/model/version) and
+                        print concrete repair steps. Also runs automatically after 3
+                        consecutive failed requests to the same provider.
   /reset               Clear saved chat history and start fresh (same provider/model/workspace)
   /checkpoint          Save a checkpoint (goal/status/pending steps), auto-attaches recent prompts
   /checkpoint list     List saved checkpoints

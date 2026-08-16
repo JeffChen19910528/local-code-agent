@@ -18,6 +18,67 @@ export async function inspectProviders(config) {
   };
 }
 
+export async function diagnoseProvider(config, providerName) {
+  if (providerName === "ollama") {
+    return detectOllama(config.ollamaBaseUrl);
+  }
+
+  if (providerName === "lmstudio") {
+    return detectLmStudio(config.lmStudioBaseUrl);
+  }
+
+  return null;
+}
+
+// Builds a human-readable (Traditional Chinese) repair message for a provider that just
+// failed a live request. Reuses the same install/server/model hints as the startup wizard,
+// but adds a distinct branch for the "looks ready yet the request still failed" case, which
+// is what happens most often right after the user updates Ollama (stale background service,
+// or a model file left in a half-migrated state).
+export function buildRepairGuidance(status, context = {}) {
+  if (!status) {
+    return "無法判斷目前 provider 的狀態，建議手動確認 Ollama / LM Studio 是否正常執行。";
+  }
+
+  const lines = [`診斷結果：${summarizeProvider(status)}`];
+
+  if (!status.installed) {
+    lines.push(...status.installHints.map((line) => `- ${line}`));
+    return lines.join("\n");
+  }
+
+  if (!status.serverReachable) {
+    lines.push(...status.serverHints.map((line) => `- ${line}`));
+    return lines.join("\n");
+  }
+
+  if (status.models.length === 0) {
+    lines.push(...status.modelHints.map((line) => `- ${line}`));
+    return lines.join("\n");
+  }
+
+  lines.push(
+    `${status.label} 的本機 API 目前可以連線，但剛剛的請求仍然失敗。這常發生在剛更新過 ${status.label}、背景服務還沒完全切換乾淨，或模型檔案在更新後損毀時。建議依序嘗試：`
+  );
+  if (status.provider === "ollama") {
+    lines.push("- 完全結束 Ollama（工作列圖示右鍵結束，或用工作管理員結束 ollama.exe / ollama app.exe），再重新開啟一次");
+    lines.push("- 另開一個終端機執行 `ollama serve`，觀察啟動時是否印出錯誤訊息");
+    lines.push(`- 執行 \`ollama run ${context.model ?? "<你的模型名稱>"}\` 確認這個模型本身可以正常對話`);
+    lines.push("- 執行 `ollama -v` 確認目前版本；若剛更新完，可到 https://ollama.com/download 重新下載安裝檔覆蓋安裝一次");
+    if (status.version) {
+      lines.push(`  (目前偵測到版本：${status.version})`);
+    }
+  } else {
+    lines.push("- 在 LM Studio 內完全停止並重新啟動本機伺服器");
+    lines.push("- 確認模型仍顯示為已載入（Loaded），必要時重新載入一次");
+  }
+  if (context.providerErrorMessage) {
+    lines.push(`- 原始錯誤訊息：${context.providerErrorMessage}`);
+  }
+
+  return lines.join("\n");
+}
+
 export function buildProviderDiagnostics(statusMap) {
   return Object.values(statusMap).map((status) => ({
     heading: `${status.label} (${status.provider})`,
@@ -114,7 +175,10 @@ async function detectOllama(baseUrl) {
   const installLocations = await existingPaths(getOllamaInstallPaths());
   const locations = uniqueValues([...commandLocations, ...installLocations]);
   const installed = locations.length > 0;
-  const api = await probeOllamaApi(baseUrl);
+  const [api, version] = await Promise.all([
+    probeOllamaApi(baseUrl),
+    installed ? getOllamaVersion() : Promise.resolve(null)
+  ]);
 
   return {
     provider: "ollama",
@@ -122,6 +186,7 @@ async function detectOllama(baseUrl) {
     baseUrl,
     installed,
     locations,
+    version,
     serverReachable: api.serverReachable,
     models: api.models,
     installHints: [
@@ -167,6 +232,19 @@ async function detectLmStudio(baseUrl) {
       "Load the model or expose it through the local server, then retry."
     ]
   };
+}
+
+async function getOllamaVersion() {
+  try {
+    const { stdout } = await execFile("ollama", ["-v"], {
+      timeout: 1500,
+      windowsHide: true
+    });
+    const trimmed = stdout.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
 }
 
 async function findCommandLocations(commands) {

@@ -3,6 +3,7 @@ import { createLmStudioProvider } from "./providers/lmstudio.js";
 import { createToolset } from "./tools.js";
 import { Workspace } from "./workspace.js";
 import { buildSkillPrompt } from "./skills.js";
+import { buildRepairGuidance, diagnoseProvider } from "./runtime.js";
 
 export async function runAgent(config, prompt, hooks = {}, options = {}) {
   const session = createAgentSession(config, hooks);
@@ -53,11 +54,12 @@ export function createAgentSession(config, hooks = {}, options = {}) {
           hooks.onToolCallError?.({ step, reason: "provider_error", message: providerMessage, attempt: consecutiveFailures });
 
           if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            const guidance = await diagnoseProviderFailure(config, providerMessage);
             return {
               content: [
                 `此任務自動終止：模型端連續 ${consecutiveFailures} 次回報錯誤（${providerMessage}）。`,
-                "這通常代表目前這個模型/Provider 組合本身有問題（例如與這個工具的 tool-call 格式不相容），而不是暫時性的網路問題。建議換一個模型再試一次。"
-              ].join("\n"),
+                guidance
+              ].join("\n\n"),
               steps: step,
               failed: true
             };
@@ -485,6 +487,19 @@ function isUnfinishedIntent(content) {
   if (!content || content.length > 200) return false;
   if (/<tool_call>/i.test(content)) return false;
   return INTENT_PHRASE.test(content);
+}
+
+// Runs an on-demand Ollama/LM Studio diagnosis after repeated live request failures, so the
+// user gets a concrete next step (restart service, reinstall, missing model) instead of just
+// "try another model". Diagnosis itself talks to the network/filesystem and must never throw
+// past this point - fall back to the generic message if it does.
+async function diagnoseProviderFailure(config, providerErrorMessage) {
+  try {
+    const status = await diagnoseProvider(config, config.provider);
+    return buildRepairGuidance(status, { model: config.model, providerErrorMessage });
+  } catch {
+    return "這通常代表目前這個模型/Provider 組合本身有問題（例如與這個工具的 tool-call 格式不相容），而不是暫時性的網路問題。建議換一個模型再試一次，或輸入 /repair 進一步診斷。";
+  }
 }
 
 function createProvider(config) {
