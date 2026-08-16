@@ -103,6 +103,7 @@ node ./bin/local-code.js init
   "ollamaBaseUrl": "http://127.0.0.1:11434",
   "lmStudioBaseUrl": "http://127.0.0.1:1234",
   "ollamaNumCtx": 32768,
+  "requestTimeoutMs": 180000,
   "maxSteps": 12,
   "allowCommands": false,
   "allowWrites": false,
@@ -112,6 +113,8 @@ node ./bin/local-code.js init
 ```
 
 `ollamaNumCtx`（選填）：Ollama 的 context window 大小，單位 token。**預設值為 `32768`**（工具已自動設定，無需手動調整）。像 `web_fetch` 抓回來的整頁內容、或多輪對話疊加的工具結果，很容易超過舊版預設的 8192，導致模型回覆被截斷（`回覆內容被長度限制截斷`）。若你的 GPU 記憶體有限需要縮小，或想換更大值以支援更長對話，可在此欄位覆蓋，也可用環境變數 `LOCAL_CODE_OLLAMA_NUM_CTX` 設定。
+
+`requestTimeoutMs`（選填）：等待 Ollama/LM Studio 回覆單次請求的逾時毫秒數。**預設值為 `180000`（3 分鐘）**。實測發現部分情況下 Ollama 的背景 runner 會卡死、完全沒有 CPU 活動也不會回傳任何回應或錯誤——沒有這個逾時的話，整個 CLI 會永遠卡住沒有任何提示。超時後會拋出清楚的「request timed out」錯誤（而不是無限等待），並照一般的 provider 錯誤處理流程重試/回報。可用 `--request-timeout-ms` 或環境變數 `LOCAL_CODE_REQUEST_TIMEOUT_MS` 覆蓋；本地跑很大的模型、生成明顯偏慢時可以調大。
 
 `provider` 或 `model` 留空時，程式會在啟動時互動式詢問使用者。
 如果目前終端不是互動模式，程式會輸出完整的 provider 診斷摘要。
@@ -279,6 +282,10 @@ Chat 內建指令：
 **什麼時候要用 `/reset`：** 對話記憶會把過去的 `<tool_result>`（包含失敗訊息）一起還原給模型。如果你升級了 `local-code`（例如修了某個工具的 bug）、或改了 `--allow-commands` 之類的設定，但這個資料夾的 chat 記憶裡還留著「舊版工具失敗」的紀錄，模型會傾向照著自己之前講過的話回答，即使新版工具其實已經能做到了，也可能還是說「我做不到」。這時候打 `/reset` 清掉舊記憶重新開始，模型才會重新嘗試。
 
 **Provider 連線壞掉時怎麼辦：** 如果聊天時連續 3 次收到「provider/model request failed」（例如剛更新完 Ollama 之後常見的 `500 Internal Server Error` 或 `fetch failed`），CLI 會自動跑一次診斷，並在最終訊息附上具體修復建議（例如「完全結束 Ollama 再重開」「執行 `ollama serve` 看有沒有錯誤」「執行 `ollama -v` 確認版本，必要時到官網重新下載安裝覆蓋」），不用等到失敗也可以隨時手動打 `/repair` 檢查。這個檢查只會讀取狀態、印出建議，不會自動幫你重啟服務或重新安裝。
+
+實際除錯時發現兩種常見的具體情況，CLI 現在都能分辨出來：
+- **請求整個卡住、完全沒回應**：Ollama 的背景 runner 有時會卡死，`ollama` 行程 CPU 使用率是 0% 卻永遠不回覆也不報錯。這種情況現在會在 `requestTimeoutMs`（預設 3 分鐘）後主動逾時並印出「request timed out ... this usually means the ollama process is stuck」，而不是讓整個 CLI 卡住不動。
+- **錯誤訊息包含 `EOF`**：代表 Ollama 內部跑模型的 runner 子行程在處理請求途中當掉，通常是顯示卡/系統記憶體不足、模型檔案損毀，或 GPU 驅動更新後不相容。`/repair` 現在會針對這個訊息給出對應的建議（換小一點的模型測試、`ollama pull` 重新下載、檢查記憶體用量、查看 `server.log`），而不是只給通用的「重開 Ollama」建議。
 
 ## 任務進度 Checkpoint
 

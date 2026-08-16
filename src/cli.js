@@ -635,6 +635,7 @@ Options:
   --temperature 0.2
   --ollama-base-url http://127.0.0.1:11434
   --lm-studio-base-url http://127.0.0.1:1234
+  --request-timeout-ms 180000
 
 Startup behavior:
   If provider or model is missing, the CLI will detect local Ollama / LM Studio
