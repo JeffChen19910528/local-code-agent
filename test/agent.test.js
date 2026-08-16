@@ -41,6 +41,14 @@ test("buildSystemPrompt tells the model not to claim file changes it didn't make
   assert.match(prompt, /call list_files or read_file to check first/);
 });
 
+test("buildSystemPrompt tells the model to use web_search for weather and forbids claiming no real-time access without trying", () => {
+  const prompt = buildSystemPrompt({ workspace: process.cwd() }, []);
+
+  assert.match(prompt, /weather, sports scores\/schedules, stock\/crypto prices/);
+  assert.match(prompt, /NEVER claim you "don't have access to real-time data\/APIs"/);
+  assert.match(prompt, /a plain refusal with no tool_call attempt in the same turn is never an acceptable final answer/);
+});
+
 test("createAgentSession preserves sanitized history", () => {
   const session = createAgentSession({
     provider: "ollama",
