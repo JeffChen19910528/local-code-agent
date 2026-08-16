@@ -14,7 +14,7 @@ export function createLmStudioProvider(config) {
       });
 
       if (!response.ok) {
-        throw new Error(`LM Studio request failed: ${response.status} ${response.statusText}`);
+        throw new Error(`LM Studio request failed: ${response.status} ${response.statusText}${await describeErrorBody(response)}`);
       }
 
       const data = await response.json();
@@ -29,13 +29,38 @@ export function createLmStudioProvider(config) {
     async listModels() {
       const response = await fetch(joinUrl(config.lmStudioBaseUrl, "/v1/models"));
       if (!response.ok) {
-        throw new Error(`LM Studio list models failed: ${response.status} ${response.statusText}`);
+        throw new Error(`LM Studio list models failed: ${response.status} ${response.statusText}${await describeErrorBody(response)}`);
       }
 
       const data = await response.json();
       return (data.data ?? []).map((item) => item.id);
     }
   };
+}
+
+// LM Studio's OpenAI-compatible API returns {"error":{"message":"..."}} on failure; the
+// status line alone doesn't say why the request failed, so surface the body text too.
+async function describeErrorBody(response) {
+  try {
+    const text = (await response.text()).trim();
+    if (!text) {
+      return "";
+    }
+
+    try {
+      const parsed = JSON.parse(text);
+      const message = parsed?.error?.message ?? parsed?.error;
+      if (typeof message === "string" && message.trim()) {
+        return ` - ${message.trim()}`;
+      }
+    } catch {
+      // Not JSON; fall through to raw text below.
+    }
+
+    return ` - ${text.slice(0, 500)}`;
+  } catch {
+    return "";
+  }
 }
 
 function ensureModel(config) {
