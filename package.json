@@ -1,6 +1,6 @@
 {
   "name": "@jc20231028/local-code-agent",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "A local coding CLI that uses Ollama or LM Studio models to inspect and modify project files.",
   "type": "module",
   "bin": {
