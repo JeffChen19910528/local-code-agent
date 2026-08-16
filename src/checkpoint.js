@@ -32,9 +32,16 @@ export function extractRecentPrompts(history, limit = DEFAULT_PROMPT_LIMIT, maxC
 
   const prompts = history
     .filter(isRealUserPrompt)
-    .map((message) => message.content.trim().slice(0, maxChars));
+    .map((message) => stripCurrentDatetimeTag(message.content.trim()).slice(0, maxChars));
 
   return prompts.slice(-limit);
+}
+
+// ask() prefixes every outgoing user message with <current_datetime>...</current_datetime> so
+// the model can resolve "today"/"tomorrow". That's noise in a checkpoint meant to capture what
+// the user actually typed, so strip it back off here.
+function stripCurrentDatetimeTag(content) {
+  return content.replace(/^<current_datetime>[^<]*<\/current_datetime>\n?/, "");
 }
 
 function isRealUserPrompt(message) {

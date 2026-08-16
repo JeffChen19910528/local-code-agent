@@ -49,6 +49,34 @@ test("buildSystemPrompt tells the model to use web_search for weather and forbid
   assert.match(prompt, /a plain refusal with no tool_call attempt in the same turn is never an acceptable final answer/);
 });
 
+test("buildSystemPrompt tells the model to use the injected <current_datetime> tag to resolve relative dates", () => {
+  const prompt = buildSystemPrompt({ workspace: process.cwd() }, []);
+
+  assert.match(prompt, /<current_datetime>\.\.\.<\/current_datetime>/);
+  assert.match(prompt, /resolve relative terms like "today", "tomorrow", "this week"/);
+});
+
+test("ask() prefixes every outgoing user message with the current date/time", async () => {
+  const responses = [{ message: { content: "done" } }];
+
+  await withMockedFetch(responses, async () => {
+    const session = createAgentSession({
+      provider: "ollama",
+      model: "demo",
+      workspace: process.cwd(),
+      allowCommands: false,
+      maxSteps: 3,
+      temperature: 0.2,
+      ollamaBaseUrl: "http://127.0.0.1:11434"
+    }, {});
+
+    await session.ask("台北天氣如何?");
+
+    const userMessage = session.getHistory().find((message) => message.role === "user");
+    assert.match(userMessage.content, /^<current_datetime>\d{4}-\d{2}-\d{2} \(\w+\) \d{2}:\d{2} local time \(UTC[+-]\d{2}:\d{2}\)<\/current_datetime>\n台北天氣如何\?$/);
+  });
+});
+
 test("createAgentSession preserves sanitized history", () => {
   const session = createAgentSession({
     provider: "ollama",
