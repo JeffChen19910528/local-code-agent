@@ -56,6 +56,14 @@ test("buildSystemPrompt tells the model to use the injected <current_datetime> t
   assert.match(prompt, /resolve relative terms like "today", "tomorrow", "this week"/);
 });
 
+test("buildSystemPrompt points the model at wttr.in when web_fetch only returns JS-app boilerplate", () => {
+  const prompt = buildSystemPrompt({ workspace: process.cwd() }, []);
+
+  assert.match(prompt, /web_fetch only reads a page's raw HTML - it cannot run JavaScript/);
+  assert.match(prompt, /wttr\.in\/<city>\?format=j1/);
+  assert.match(prompt, /wttr\.in\/<city>\?format=4/);
+});
+
 test("ask() prefixes every outgoing user message with the current date/time", async () => {
   const responses = [{ message: { content: "done" } }];
 
