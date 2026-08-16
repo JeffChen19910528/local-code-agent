@@ -18,6 +18,8 @@ export class Workspace {
     this.allowCommands = Boolean(options.allowCommands);
     this.allowWrites = Boolean(options.allowWrites);
     this.allowNetwork = Boolean(options.allowNetwork);
+    this.backgroundCommands = new Map();
+    this.backgroundCounter = 0;
   }
 
   assertWriteApproved(approved) {
@@ -63,6 +65,12 @@ export class Workspace {
   async readFile(targetPath) {
     const fullPath = this.resolvePath(targetPath);
     return fs.readFile(fullPath, "utf8");
+  }
+
+  async globFiles(pattern, targetPath = ".", limit = 200) {
+    const files = await this.listFiles(targetPath, MAX_SCANNED_ENTRIES);
+    const matcher = globToRegExp(pattern);
+    return files.filter((relativePath) => matcher.test(relativePath)).slice(0, limit);
   }
 
   async readExternalFile(targetPath) {
@@ -121,26 +129,51 @@ export class Workspace {
     return `Updated ${targetPath}`;
   }
 
-  async searchText(query, targetPath = ".", limit = 50) {
+  async searchText(query, targetPath = ".", limit = 50, options = {}) {
+    const { regex = false, ignoreCase = false, contextLines = 0, glob = null } = options;
     const files = await this.listFiles(targetPath, 500);
+    const filtered = glob ? files.filter((relativePath) => globToRegExp(glob).test(relativePath)) : files;
+
+    let matcher = null;
+    if (regex) {
+      matcher = new RegExp(query, ignoreCase ? "i" : "");
+    }
+
     const matches = [];
-    for (const relativePath of files) {
+    for (const relativePath of filtered) {
       if (matches.length >= limit) {
         break;
       }
 
-      const content = await this.readFile(relativePath);
+      let content;
+      try {
+        content = await this.readFile(relativePath);
+      } catch {
+        continue;
+      }
+
       const lines = content.split(/\r?\n/);
       for (let index = 0; index < lines.length; index += 1) {
-        if (lines[index].includes(query)) {
-          matches.push({
-            path: relativePath,
-            line: index + 1,
-            text: lines[index].trim()
-          });
-          if (matches.length >= limit) {
-            break;
-          }
+        const line = lines[index];
+        const hit = matcher
+          ? matcher.test(line)
+          : ignoreCase
+            ? line.toLowerCase().includes(query.toLowerCase())
+            : line.includes(query);
+
+        if (!hit) {
+          continue;
+        }
+
+        const entry = { path: relativePath, line: index + 1, text: line.trim() };
+        if (contextLines > 0) {
+          entry.before = lines.slice(Math.max(0, index - contextLines), index).map((text) => text.trim());
+          entry.after = lines.slice(index + 1, index + 1 + contextLines).map((text) => text.trim());
+        }
+
+        matches.push(entry);
+        if (matches.length >= limit) {
+          break;
         }
       }
     }
@@ -153,6 +186,41 @@ export class Workspace {
     const fullPath = this.resolvePath(targetPath);
     await fs.mkdir(fullPath, { recursive: true });
     return `Created ${path.relative(this.rootPath, fullPath)}`;
+  }
+
+  async deleteFile(targetPath, { approved = false } = {}) {
+    this.assertWriteApproved(approved);
+    const fullPath = this.resolvePath(targetPath);
+
+    let stat;
+    try {
+      stat = await fs.stat(fullPath);
+    } catch {
+      throw new Error(`File not found: ${targetPath}`);
+    }
+
+    if (stat.isDirectory()) {
+      throw new Error(`Refusing to delete a directory: ${targetPath}. Use run_command for that.`);
+    }
+
+    await fs.unlink(fullPath);
+    return `Deleted ${targetPath}`;
+  }
+
+  async moveFile(fromPath, toPath, { approved = false } = {}) {
+    this.assertWriteApproved(approved);
+    const fullFrom = this.resolvePath(fromPath);
+    const fullTo = this.resolvePath(toPath);
+
+    try {
+      await fs.stat(fullFrom);
+    } catch {
+      throw new Error(`File not found: ${fromPath}`);
+    }
+
+    await fs.mkdir(path.dirname(fullTo), { recursive: true });
+    await fs.rename(fullFrom, fullTo);
+    return `Moved ${fromPath} -> ${toPath}`;
   }
 
   async runCommand(command, args = [], { approved = false } = {}) {
@@ -190,6 +258,112 @@ export class Workspace {
         });
       });
     });
+  }
+
+  runCommandBackground(command, args = [], { approved = false } = {}) {
+    if (!this.allowCommands && !approved) {
+      throw new Error("Command execution was not approved. Re-run with --allow-commands to skip the prompt, or approve it when asked.");
+    }
+
+    this.backgroundCounter += 1;
+    const id = `bg-${this.backgroundCounter}`;
+
+    const child = spawn(command, args, {
+      cwd: this.rootPath,
+      shell: process.platform === "win32",
+      // On Windows, shell:true spawns cmd.exe as the direct child and the real process as its
+      // grandchild - killing child.pid only kills the cmd.exe wrapper, orphaning the grandchild.
+      // On POSIX, detaching puts the child in its own process group so killing -pid (the group)
+      // reaches any of its own children too, instead of leaving them behind.
+      detached: process.platform !== "win32",
+      env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" }
+    });
+
+    const record = {
+      id,
+      command,
+      args,
+      pid: child.pid ?? null,
+      status: "running",
+      exitCode: null,
+      stdout: "",
+      stderr: "",
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      child
+    };
+
+    child.stdout.on("data", (chunk) => {
+      record.stdout = trimBuffer(record.stdout + chunk.toString(), MAX_BACKGROUND_BUFFER);
+    });
+    child.stderr.on("data", (chunk) => {
+      record.stderr = trimBuffer(record.stderr + chunk.toString(), MAX_BACKGROUND_BUFFER);
+    });
+    child.on("error", (error) => {
+      record.status = "failed";
+      record.stderr = trimBuffer(`${record.stderr}\n[spawn error] ${error.message}`, MAX_BACKGROUND_BUFFER);
+      record.finishedAt = new Date().toISOString();
+    });
+    child.on("close", (code) => {
+      if (record.status !== "failed" && record.status !== "killed") {
+        record.status = "exited";
+      }
+      record.exitCode = code;
+      record.finishedAt = new Date().toISOString();
+    });
+
+    this.backgroundCommands.set(id, record);
+    return { id, pid: record.pid, status: record.status };
+  }
+
+  readBackgroundOutput(id, { tail = null } = {}) {
+    const record = this.backgroundCommands.get(id);
+    if (!record) {
+      throw new Error(`Unknown background command: ${id}`);
+    }
+
+    return {
+      id: record.id,
+      command: [record.command, ...record.args].join(" "),
+      status: record.status,
+      exitCode: record.exitCode,
+      pid: record.pid,
+      stdout: tail ? record.stdout.slice(-tail) : record.stdout,
+      stderr: tail ? record.stderr.slice(-tail) : record.stderr
+    };
+  }
+
+  stopBackgroundCommand(id) {
+    const record = this.backgroundCommands.get(id);
+    if (!record) {
+      throw new Error(`Unknown background command: ${id}`);
+    }
+
+    if (record.status !== "running") {
+      return { id, status: record.status, message: "Already finished." };
+    }
+
+    if (process.platform === "win32" && record.pid) {
+      // Kills the whole process tree rooted at the cmd.exe wrapper (/t), not just that wrapper,
+      // so the real process it launched doesn't get orphaned. See the note in runCommandBackground.
+      spawn("taskkill", ["/pid", String(record.pid), "/t", "/f"]);
+    } else if (record.pid) {
+      try {
+        process.kill(-record.pid, "SIGTERM");
+      } catch {
+        record.child.kill();
+      }
+    } else {
+      record.child.kill();
+    }
+
+    record.status = "killed";
+    record.finishedAt = new Date().toISOString();
+    return { id, status: record.status };
+  }
+
+  listBackgroundCommands() {
+    return [...this.backgroundCommands.values()].map(({ child, ...rest }) => rest);
   }
 
   async fetchUrl(targetUrl, { approved = false, maxChars = 8000, render = false } = {}) {
@@ -345,6 +519,50 @@ function stripTags(html) {
 }
 
 const MAX_SCANNED_ENTRIES = 5000;
+const MAX_BACKGROUND_BUFFER = 200000;
+
+function trimBuffer(text, maxChars) {
+  return text.length > maxChars ? text.slice(text.length - maxChars) : text;
+}
+
+// Converts a simple glob pattern (`*`, `**`, `?`) into a RegExp matched against
+// forward-slash-separated relative paths. Not a full minimatch implementation
+// (no brace expansion, no character classes) but covers the common cases
+// ("**/*.ts", "src/**/*.js", "*.md") that tools actually need.
+function globToRegExp(pattern) {
+  let source = "";
+  let i = 0;
+  while (i < pattern.length) {
+    const char = pattern[i];
+    if (char === "*") {
+      if (pattern[i + 1] === "*") {
+        source += ".*";
+        i += 2;
+        if (pattern[i] === "/") {
+          i += 1;
+        }
+        continue;
+      }
+      source += "[^/]*";
+      i += 1;
+      continue;
+    }
+    if (char === "?") {
+      source += "[^/]";
+      i += 1;
+      continue;
+    }
+    if (".+^$()[]{}|\\".includes(char)) {
+      source += `\\${char}`;
+      i += 1;
+      continue;
+    }
+    source += char;
+    i += 1;
+  }
+
+  return new RegExp(`^${source}$`);
+}
 
 async function walk(currentPath, rootPath, results, limit) {
   if (results.length >= limit) {

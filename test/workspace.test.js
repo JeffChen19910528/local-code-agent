@@ -150,6 +150,101 @@ test("workspace lists recent files in newest-first order", async () => {
   assert.equal(recent[1].path, "a.txt");
 });
 
+test("workspace globFiles matches ** and * glob patterns", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root, { allowWrites: true });
+
+  await workspace.writeFile("src/a.ts", "");
+  await workspace.writeFile("src/nested/b.ts", "");
+  await workspace.writeFile("README.md", "");
+
+  const tsFiles = (await workspace.globFiles("**/*.ts")).sort();
+  assert.deepEqual(tsFiles, ["src/a.ts", "src/nested/b.ts"]);
+
+  const mdFiles = await workspace.globFiles("*.md");
+  assert.deepEqual(mdFiles, ["README.md"]);
+});
+
+test("workspace searchText supports regex, ignoreCase, contextLines, and glob filtering", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root, { allowWrites: true });
+
+  await workspace.writeFile("a.js", "before\nfunction Foo() {}\nafter\n");
+  await workspace.writeFile("b.txt", "function foo() {}\n");
+
+  const regexMatches = await workspace.searchText("function \\w+\\(\\)", ".", 50, { regex: true, glob: "*.js" });
+  assert.equal(regexMatches.length, 1);
+  assert.equal(regexMatches[0].path, "a.js");
+  assert.deepEqual(regexMatches[0].before, undefined);
+
+  const withContext = await workspace.searchText("Foo", ".", 50, { contextLines: 1 });
+  assert.deepEqual(withContext[0].before, ["before"]);
+  assert.deepEqual(withContext[0].after, ["after"]);
+
+  const caseInsensitive = await workspace.searchText("FOO", ".", 50, { ignoreCase: true });
+  assert.equal(caseInsensitive.length, 2);
+});
+
+test("workspace deleteFile removes a file and rejects directories", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root, { allowWrites: true });
+
+  await workspace.writeFile("notes.txt", "hello");
+  await workspace.deleteFile("notes.txt", { approved: true });
+  await assert.rejects(workspace.readFile("notes.txt"));
+
+  await workspace.makeDirectory("sub", { approved: true });
+  await assert.rejects(workspace.deleteFile("sub", { approved: true }), /directory/i);
+});
+
+test("workspace moveFile renames a file and creates destination directories", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root, { allowWrites: true });
+
+  await workspace.writeFile("notes.txt", "hello");
+  await workspace.moveFile("notes.txt", "archive/notes.txt", { approved: true });
+
+  assert.equal(await workspace.readFile("archive/notes.txt"), "hello");
+  await assert.rejects(workspace.readFile("notes.txt"));
+});
+
+test("workspace runCommandBackground streams output and reports exit status", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root, { allowCommands: true });
+
+  const { id } = workspace.runCommandBackground("node", ["-e", "console.log('hi')"]);
+
+  await new Promise((resolve) => {
+    const check = () => {
+      const output = workspace.readBackgroundOutput(id);
+      if (output.status !== "running") {
+        resolve();
+        return;
+      }
+      setTimeout(check, 20);
+    };
+    check();
+  });
+
+  const finalOutput = workspace.readBackgroundOutput(id);
+  assert.equal(finalOutput.status, "exited");
+  assert.equal(finalOutput.exitCode, 0);
+  assert.match(finalOutput.stdout, /hi/);
+});
+
+test("workspace stopBackgroundCommand kills a running process", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-code-agent-"));
+  const workspace = new Workspace(root, { allowCommands: true });
+
+  // A script file (not an inline -e snippet) sidesteps cmd.exe's unreliable parsing of
+  // parens/braces inside shell:true args on Windows.
+  await fs.writeFile(path.join(root, "server.js"), "setInterval(function () {}, 1000);\n");
+  const { id } = workspace.runCommandBackground("node", ["server.js"]);
+  const result = workspace.stopBackgroundCommand(id);
+
+  assert.equal(result.status, "killed");
+});
+
 async function withMockedFetch(handler, run) {
   const originalFetch = global.fetch;
   global.fetch = handler;

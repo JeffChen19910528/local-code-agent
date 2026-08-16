@@ -156,7 +156,7 @@ node ./bin/local-code.js run "編譯並執行這個 C# 專案"
 node ./bin/local-code.js run "執行測試並修正失敗案例" --allow-commands
 ```
 
-同樣地，模型呼叫 `write_file`、`append_file`、`replace_in_file`、`make_directory` 這些會建立/覆寫/修改檔案或資料夾的工具時，預設也會先印出要變更的路徑（和內容預覽）並問 `Allow this change? [y/N]:`，按 `y` 才會真的寫入；沒有 TTY 時一樣直接安全拒絕。想跳過詢問可以加 `--allow-writes`：
+同樣地，模型呼叫 `write_file`、`append_file`、`replace_in_file`、`make_directory`、`delete_file`、`move_file` 這些會建立/覆寫/修改/刪除檔案或資料夾的工具時，預設也會先印出要變更的路徑（和內容預覽）並問 `Allow this change? [y/N]:`，按 `y` 才會真的寫入；沒有 TTY 時一樣直接安全拒絕。想跳過詢問可以加 `--allow-writes`：
 
 ```powershell
 node ./bin/local-code.js run "幫我建立這個功能的檔案" --allow-writes
@@ -168,7 +168,16 @@ node ./bin/local-code.js run "幫我建立這個功能的檔案" --allow-writes
 node ./bin/local-code.js run "幫我查一下最新的 Node.js LTS 版本" --allow-network
 ```
 
-`run_command` 之外的其他工具（`list_files`、`read_file`、`search_text`）只是讀取，不會跳出詢問。每一步驟模型在做什麼、呼叫了哪個工具、帶了什麼參數，都會即時印在終端機（stderr），不會等到最後才一次顯示結果。
+`run_command`/`run_command_background` 之外的其他工具（`list_files`、`glob_files`、`read_file`、`search_text`、`todo_write`、`todo_read`、`read_background_output`、`list_background_commands`）只是讀取或記錄進度，不會跳出詢問；`stop_background_command` 則沿用 `run_command` 的指令核准規則。每一步驟模型在做什麼、呼叫了哪個工具、帶了什麼參數，都會即時印在終端機（stderr），不會等到最後才一次顯示結果。
+
+**工具清單新增/強化的部分：**
+
+- `glob_files`：用檔名 pattern（`**/*.ts`、`src/**/*.test.js`）找檔案，取代自己讀 `list_files` 再手動篩選。
+- `search_text`：從單純的子字串比對，升級成類似 `grep` 的搜尋——可加 `regex:true` 用正規表示式、`ignoreCase` 不分大小寫、`contextLines` 顯示前後文、`glob` 限定副檔名/路徑。
+- `read_file`：新增 `offset`/`limit`，讀大檔案時可以只抓一段，回傳內容會自動加上行號（方便之後用 `replace_in_file` 精準定位）。
+- `delete_file` / `move_file`：刪除、搬移／重新命名工作區內的檔案，同樣走使用者核准流程。
+- `todo_write` / `todo_read`：讓模型維護一份多步驟任務的待辦清單（pending/in_progress/completed），方便你即時看到進度，而不是等到最後一次性報告。
+- `run_command_background` / `read_background_output` / `stop_background_command` / `list_background_commands`：`run_command` 本身是同步阻塞的，不適合拿來跑 dev server 之類長駐程序；這組工具可以在背景啟動、之後輪詢輸出、要停的時候再停掉（Windows 上會連同它產生的子行程一起清乾淨，不會留下孤兒行程）。
 
 **模型知道「現在」是什麼時候：** 每一則使用者訊息送給模型前，CLI 都會自動加上一行 `<current_datetime>2026-08-18 (Tuesday) 14:35 local time (UTC+08:00)</current_datetime>`（每次對話都重新產生，不是對話開始時固定不變，跨日的長 chat session 也不會用到過期日期）。這是為了讓模型能正確解讀「今天」「明天」「這星期」之類的相對日期，也能拿來比對 `web_fetch` 抓回來的網頁上寫的發布/更新時間是否真的是最新的，而不是憑空猜測或直接當成訓練資料截止日。這行只加在送給模型的內容裡，`/checkpoint` 自動擷取的「最近輸入」不會顯示這個標籤。
 
@@ -325,7 +334,7 @@ node ./bin/local-code.js checkpoint complete
 
 ## 讀取專案以外的檔案
 
-預設情況下，`list_files`／`read_file`／`search_text` 都只能看到目前 workspace 根目錄底下的檔案（跟 Claude Code 一樣，會擋掉 `../` 這種跳出 workspace 的路徑）。如果想讓模型分析電腦上其他地方的檔案，有兩種方式：
+預設情況下，`list_files`／`glob_files`／`read_file`／`search_text` 都只能看到目前 workspace 根目錄底下的檔案（跟 Claude Code 一樣，會擋掉 `../` 這種跳出 workspace 的路徑）。如果想讓模型分析電腦上其他地方的檔案，有兩種方式：
 
 - **`/attach <路徑>`（只在 `chat` 模式）**：像 Claude Code 拖檔案進來一樣，輸入絕對路徑（或相對於啟動 `local-code` 那個資料夾的相對路徑），例如：
 

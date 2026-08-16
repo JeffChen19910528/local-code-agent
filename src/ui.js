@@ -193,7 +193,9 @@ const WRITE_ACTION_LABELS = {
   write: "create/overwrite file",
   append: "append to file",
   replace: "replace text in file",
-  mkdir: "create directory"
+  mkdir: "create directory",
+  delete: "delete file",
+  move: "move/rename file"
 };
 
 export async function confirmWrite({ action, path: targetPath, preview = "", cwd }) {

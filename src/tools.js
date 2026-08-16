@@ -3,16 +3,43 @@ import { confirmCommand, confirmNetwork, confirmWrite } from "./ui.js";
 import { getAgentTask, listAgentTasks, spawnAgentTask } from "./subagents.js";
 
 export function createToolset(workspace, config = null) {
+  let todos = [];
+
   const tools = {
     list_files: {
       description: "List files under the workspace or a subdirectory.",
       args: { path: "string?", limit: "number?" },
       run: async ({ path = ".", limit = 200 }) => workspace.listFiles(path, limit)
     },
+    glob_files: {
+      description: [
+        "Find files under the workspace whose relative path matches a glob pattern (e.g. \"**/*.ts\", \"src/**/*.test.js\", \"*.md\").",
+        "Supports * (any chars except /), ** (any chars including /, spans directories), and ? (single char).",
+        "Use this instead of list_files when you know the kind of file you're looking for but not where it is."
+      ].join(" "),
+      args: { pattern: "string", path: "string?", limit: "number?" },
+      run: async ({ pattern, path = ".", limit = 200 }) => workspace.globFiles(pattern, path, limit)
+    },
     read_file: {
-      description: "Read a UTF-8 text file from the workspace.",
-      args: { path: "string" },
-      run: async ({ path }) => workspace.readFile(path)
+      description: [
+        "Read a UTF-8 text file from the workspace.",
+        "For large files, pass offset (1-based starting line) and/or limit (max lines) to read a slice instead of the whole file - when either is given, each returned line is prefixed with its line number and a tab, so you can reference exact line numbers back to the user or in replace_in_file."
+      ].join(" "),
+      args: { path: "string", offset: "number?", limit: "number?" },
+      run: async ({ path, offset, limit }) => {
+        const content = await workspace.readFile(path);
+        if (offset == null && limit == null) {
+          return content;
+        }
+
+        const lines = content.split(/\r?\n/);
+        const start = Math.max(0, (offset ?? 1) - 1);
+        const end = limit != null ? start + limit : lines.length;
+        return lines
+          .slice(start, end)
+          .map((line, index) => `${start + index + 1}\t${line}`)
+          .join("\n");
+      }
     },
     read_external_file: {
       description: [
@@ -70,9 +97,22 @@ export function createToolset(workspace, config = null) {
       }
     },
     search_text: {
-      description: "Search for a plain text query across workspace files.",
-      args: { query: "string", path: "string?", limit: "number?" },
-      run: async ({ query, path = ".", limit = 50 }) => workspace.searchText(query, path, limit)
+      description: [
+        "Search for a text query across workspace files, like grep. By default query is a plain substring; pass regex:true to treat it as a regular expression.",
+        "Optional: ignoreCase for case-insensitive matching, contextLines to include N lines before/after each match, glob (e.g. \"*.js\") to only search matching files.",
+        "Returns matches as {path, line, text, before?, after?}."
+      ].join(" "),
+      args: {
+        query: "string",
+        path: "string?",
+        limit: "number?",
+        regex: "boolean?",
+        ignoreCase: "boolean?",
+        contextLines: "number?",
+        glob: "string?"
+      },
+      run: async ({ query, path = ".", limit = 50, regex = false, ignoreCase = false, contextLines = 0, glob = null }) =>
+        workspace.searchText(query, path, limit, { regex, ignoreCase, contextLines, glob })
     },
     make_directory: {
       description: "Create a directory recursively in the workspace.",
@@ -81,6 +121,79 @@ export function createToolset(workspace, config = null) {
         const approved = await approveWrite(workspace, { action: "mkdir", path });
         return workspace.makeDirectory(path, { approved });
       }
+    },
+    delete_file: {
+      description: "Delete a single file inside the workspace. Refuses to delete directories. Unless the session was started with --allow-writes, the user is asked to approve each deletion in the terminal before it happens.",
+      args: { path: "string" },
+      run: async ({ path }) => {
+        const approved = await approveWrite(workspace, { action: "delete", path });
+        return workspace.deleteFile(path, { approved });
+      }
+    },
+    move_file: {
+      description: "Move or rename a file inside the workspace, creating the destination directory if needed. Unless the session was started with --allow-writes, the user is asked to approve each move in the terminal before it happens.",
+      args: { from: "string", to: "string" },
+      run: async ({ from, to }) => {
+        const approved = await approveWrite(workspace, { action: "move", path: `${from} -> ${to}` });
+        return workspace.moveFile(from, to, { approved });
+      }
+    },
+    todo_write: {
+      description: [
+        "Replace the current task todo list. Use this to plan and track progress on a multi-step task so the user can see what's done, in progress, and pending.",
+        "items is an array of {id?, content, status} where status is one of pending/in_progress/completed. Pass the full list each time (not a diff) - this call overwrites the previous list.",
+        "Keep exactly one item as in_progress at a time. Mark an item completed as soon as it's actually done, not in a later batch."
+      ].join(" "),
+      args: { items: "array" },
+      run: async ({ items }) => {
+        if (!Array.isArray(items)) {
+          throw new Error("items must be an array of {content, status}.");
+        }
+
+        todos = items.map((item, index) => ({
+          id: item?.id != null ? String(item.id) : String(index + 1),
+          content: String(item?.content ?? ""),
+          status: ["pending", "in_progress", "completed"].includes(item?.status) ? item.status : "pending"
+        }));
+
+        return formatTodoList(todos);
+      }
+    },
+    todo_read: {
+      description: "Read the current task todo list (as set by todo_write).",
+      args: {},
+      run: async () => (todos.length > 0 ? formatTodoList(todos) : "No todos yet.")
+    },
+    run_command_background: {
+      description: [
+        "Start a long-running local shell command in the background (e.g. a dev server) and return immediately with {id, pid, status}.",
+        "Use this instead of run_command when the process is not expected to exit on its own. Poll its output with read_background_output(id) and stop it with stop_background_command(id) when done.",
+        "Unless the session was started with --allow-commands, the user is asked to approve it in the terminal before it starts."
+      ].join(" "),
+      args: { command: "string", args: "string[]?" },
+      run: async ({ command, args = [] }) => {
+        if (workspace.allowCommands) {
+          return workspace.runCommandBackground(command, args);
+        }
+
+        const approved = await confirmCommand({ command, args, cwd: workspace.rootPath });
+        return workspace.runCommandBackground(command, args, { approved });
+      }
+    },
+    read_background_output: {
+      description: "Read the accumulated stdout/stderr and status of a background command started with run_command_background. Pass tail to only get the last N characters of each stream.",
+      args: { id: "string", tail: "number?" },
+      run: async ({ id, tail }) => workspace.readBackgroundOutput(id, { tail })
+    },
+    stop_background_command: {
+      description: "Kill a still-running background command started with run_command_background.",
+      args: { id: "string" },
+      run: async ({ id }) => workspace.stopBackgroundCommand(id)
+    },
+    list_background_commands: {
+      description: "List all background commands started so far in this session, most recent first, with their status.",
+      args: {},
+      run: async () => [...workspace.listBackgroundCommands()].reverse()
     },
     run_command: {
       description: "Run a local shell command inside the workspace (e.g. dotnet run, npm test, python script.py) to build, test, or execute code. Unless the session was started with --allow-commands, the user is asked to approve each command in the terminal before it runs.",
@@ -177,6 +290,16 @@ export function createToolset(workspace, config = null) {
       return tool.run(args ?? {});
     }
   };
+}
+
+const TODO_STATUS_MARK = {
+  pending: "[ ]",
+  in_progress: "[~]",
+  completed: "[x]"
+};
+
+function formatTodoList(items) {
+  return items.map((item) => `${TODO_STATUS_MARK[item.status]} ${item.content}`).join("\n");
 }
 
 async function approveWrite(workspace, { action, path, preview }) {
