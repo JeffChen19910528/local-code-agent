@@ -1,22 +1,28 @@
+const LIST_MODELS_TIMEOUT_MS = 15000;
+
 export function createOllamaProvider(config) {
   return {
     name: "ollama",
     async chat(messages) {
       ensureModel(config);
-      const response = await fetch(joinUrl(config.ollamaBaseUrl, "/api/chat"), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          model: config.model,
-          messages,
-          stream: false,
-          think: false,
-          options: {
-            temperature: config.temperature,
-            num_ctx: config.ollamaNumCtx ?? 32768
-          }
-        })
-      });
+      const response = await fetchWithTimeout(
+        joinUrl(config.ollamaBaseUrl, "/api/chat"),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: config.model,
+            messages,
+            stream: false,
+            think: false,
+            options: {
+              temperature: config.temperature,
+              num_ctx: config.ollamaNumCtx ?? 32768
+            }
+          })
+        },
+        config.requestTimeoutMs ?? 180000
+      );
 
       if (!response.ok) {
         throw new Error(`Ollama request failed: ${response.status} ${response.statusText}${await describeErrorBody(response)}`);
@@ -32,7 +38,7 @@ export function createOllamaProvider(config) {
       };
     },
     async listModels() {
-      const response = await fetch(joinUrl(config.ollamaBaseUrl, "/api/tags"));
+      const response = await fetchWithTimeout(joinUrl(config.ollamaBaseUrl, "/api/tags"), {}, LIST_MODELS_TIMEOUT_MS);
       if (!response.ok) {
         throw new Error(`Ollama list models failed: ${response.status} ${response.statusText}${await describeErrorBody(response)}`);
       }
@@ -41,6 +47,28 @@ export function createOllamaProvider(config) {
       return (data.models ?? []).map((item) => item.name);
     }
   };
+}
+
+// Ollama can leave a request stuck with no response and no error at all (observed after some
+// Windows updates: the ollama process sits idle at ~0% CPU, never completing or failing the
+// request). Without a timeout the whole CLI just hangs forever with no feedback. Abort and
+// raise a clear, actionable error instead once requestTimeoutMs elapses.
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(
+        `Ollama request timed out after ${Math.round(timeoutMs / 1000)}s with no response. This usually means the ollama process is stuck (not merely slow - a genuinely busy request still uses CPU/GPU). Try fully restarting Ollama (end ollama.exe / "ollama app.exe" in Task Manager, then reopen), or run /repair for more detail.`
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Ollama returns a JSON body like {"error":"..."} even on 4xx/5xx responses, with the actual

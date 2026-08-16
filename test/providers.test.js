@@ -59,6 +59,31 @@ test("ollama provider falls back to raw text when the error body isn't JSON", as
   );
 });
 
+test("ollama provider times out with a clear message when the server never responds", async () => {
+  await withMockedFetch(
+    (url, options) => new Promise((resolve, reject) => {
+      options.signal.addEventListener("abort", () => {
+        const error = new Error("The operation was aborted");
+        error.name = "AbortError";
+        reject(error);
+      });
+    }),
+    async () => {
+      const provider = createOllamaProvider({
+        model: "demo",
+        temperature: 0.2,
+        ollamaBaseUrl: "http://127.0.0.1:11434",
+        requestTimeoutMs: 20
+      });
+
+      await assert.rejects(
+        () => provider.chat([{ role: "user", content: "hi" }]),
+        /Ollama request timed out after 0s with no response/
+      );
+    }
+  );
+});
+
 test("lmstudio provider surfaces the {\"error\":{\"message\":...}} body on a failed chat request", async () => {
   await withMockedFetch(
     async () => ({

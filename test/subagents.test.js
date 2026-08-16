@@ -62,7 +62,9 @@ test("spawn_agent returns immediately, then check_agent/list_agents reflect the 
 
 test("spawn_agent refuses to exceed the configured concurrency cap", async () => {
   const workspace = new Workspace(process.cwd());
-  const toolset = createToolset(workspace, { ...makeConfig(), maxConcurrentAgents: 1 });
+  // A short requestTimeoutMs keeps the never-resolving fetch below from scheduling a timer
+  // that outlives this test (the default 180s would otherwise keep the test process alive).
+  const toolset = createToolset(workspace, { ...makeConfig(), maxConcurrentAgents: 1, requestTimeoutMs: 20 });
 
   await withMockedFetch({ message: { content: "" } }, async () => {
     // Never resolves within this test, so the first task stays "running".

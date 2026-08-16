@@ -61,10 +61,20 @@ export function buildRepairGuidance(status, context = {}) {
     `${status.label} 的本機 API 目前可以連線，但剛剛的請求仍然失敗。這常發生在剛更新過 ${status.label}、背景服務還沒完全切換乾淨，或模型檔案在更新後損毀時。建議依序嘗試：`
   );
   if (status.provider === "ollama") {
-    lines.push("- 完全結束 Ollama（工作列圖示右鍵結束，或用工作管理員結束 ollama.exe / ollama app.exe），再重新開啟一次");
-    lines.push("- 另開一個終端機執行 `ollama serve`，觀察啟動時是否印出錯誤訊息");
-    lines.push(`- 執行 \`ollama run ${context.model ?? "<你的模型名稱>"}\` 確認這個模型本身可以正常對話`);
-    lines.push("- 執行 `ollama -v` 確認目前版本；若剛更新完，可到 https://ollama.com/download 重新下載安裝檔覆蓋安裝一次");
+    if (isOllamaRunnerCrashError(context.providerErrorMessage)) {
+      lines.push(
+        "偵測到錯誤訊息包含 EOF，這通常代表 Ollama 內部負責跑模型的 runner 子行程在處理請求途中當掉或中斷連線，而不是網路問題。常見成因：顯示卡記憶體(VRAM)或系統記憶體不足、模型檔案損毀、或更新後的 GPU 驅動不相容。建議依序嘗試："
+      );
+      lines.push(`- 換一個佔用空間較小的模型測試同一個問題（${context.model ? `目前用的 ${context.model} 體積較大，` : ""}如果小模型正常，代表是這顆模型太大、記憶體/顯存不夠）`);
+      lines.push(`- 執行 \`ollama pull ${context.model ?? "<你的模型名稱>"}\` 重新下載一次模型，排除模型檔案本身損毀的可能`);
+      lines.push("- 打開工作管理員，觀察發送請求當下的可用實體記憶體與顯示卡記憶體是否被吃滿");
+      lines.push("- 查看 Ollama 的完整錯誤紀錄：Windows 上通常在 `%LOCALAPPDATA%\\Ollama\\logs\\server.log`，或關閉背景服務後另開終端機執行 `ollama serve` 前景模式重現一次，看完整的錯誤堆疊");
+    } else {
+      lines.push("- 完全結束 Ollama（工作列圖示右鍵結束，或用工作管理員結束 ollama.exe / ollama app.exe），再重新開啟一次");
+      lines.push("- 另開一個終端機執行 `ollama serve`，觀察啟動時是否印出錯誤訊息");
+      lines.push(`- 執行 \`ollama run ${context.model ?? "<你的模型名稱>"}\` 確認這個模型本身可以正常對話`);
+      lines.push("- 執行 `ollama -v` 確認目前版本；若剛更新完，可到 https://ollama.com/download 重新下載安裝檔覆蓋安裝一次");
+    }
     if (status.version) {
       lines.push(`  (目前偵測到版本：${status.version})`);
     }
@@ -77,6 +87,14 @@ export function buildRepairGuidance(status, context = {}) {
   }
 
   return lines.join("\n");
+}
+
+// Ollama's server returns a bare "EOF" body when the model-runner subprocess dies mid-request
+// (crash, OOM-kill, corrupted GGUF blob) - the HTTP layer is still fine, so serverReachable
+// stays true and this only shows up as a chat failure. It's specific enough to detect and
+// worth a distinct, more targeted set of hints than the generic restart/reinstall advice.
+function isOllamaRunnerCrashError(providerErrorMessage) {
+  return typeof providerErrorMessage === "string" && /\bEOF\b/i.test(providerErrorMessage);
 }
 
 export function buildProviderDiagnostics(statusMap) {

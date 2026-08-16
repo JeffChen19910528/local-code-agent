@@ -12,7 +12,8 @@ const DEFAULTS = {
   allowCommands: false,
   allowWrites: false,
   allowNetwork: false,
-  temperature: 0.2
+  temperature: 0.2,
+  requestTimeoutMs: 180000
 };
 
 export async function loadConfig(cwd, cliOptions = {}) {
@@ -29,6 +30,7 @@ export async function loadConfig(cwd, cliOptions = {}) {
   merged.workspace = path.resolve(cwd, merged.workspace);
   merged.maxSteps = Number(merged.maxSteps) || DEFAULTS.maxSteps;
   merged.maxConcurrentAgents = Number(merged.maxConcurrentAgents) || DEFAULTS.maxConcurrentAgents;
+  merged.requestTimeoutMs = Number(merged.requestTimeoutMs) || DEFAULTS.requestTimeoutMs;
   merged.temperature = Number(merged.temperature);
   if (merged.ollamaNumCtx != null) {
     merged.ollamaNumCtx = Number(merged.ollamaNumCtx) || undefined;
@@ -73,6 +75,7 @@ function readEnvConfig() {
     ollamaBaseUrl: process.env.OLLAMA_BASE_URL,
     lmStudioBaseUrl: process.env.LM_STUDIO_BASE_URL,
     ollamaNumCtx: process.env.LOCAL_CODE_OLLAMA_NUM_CTX,
+    requestTimeoutMs: process.env.LOCAL_CODE_REQUEST_TIMEOUT_MS,
     allowCommands: parseBoolean(process.env.LOCAL_CODE_ALLOW_COMMANDS),
     allowWrites: parseBoolean(process.env.LOCAL_CODE_ALLOW_WRITES),
     allowNetwork: parseBoolean(process.env.LOCAL_CODE_ALLOW_NETWORK)

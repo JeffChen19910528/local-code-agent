@@ -107,3 +107,26 @@ test("buildRepairGuidance gives restart/reinstall steps when the provider looks 
   assert.match(guidance, /ollama version is 0\.4\.1/);
   assert.match(guidance, /500 Internal Server Error/);
 });
+
+test("buildRepairGuidance recognizes an Ollama runner-crash (EOF) error and gives memory/corruption-specific hints", () => {
+  const guidance = buildRepairGuidance(
+    {
+      provider: "ollama",
+      label: "Ollama",
+      installed: true,
+      serverReachable: true,
+      models: ["qwen3.8:latest"],
+      version: "ollama version is 0.32.13",
+      installHints: [],
+      serverHints: [],
+      modelHints: []
+    },
+    { model: "qwen3.8:latest", providerErrorMessage: "Ollama request failed: 500 Internal Server Error - EOF" }
+  );
+
+  assert.match(guidance, /runner 子行程/);
+  assert.match(guidance, /ollama pull qwen3\.8:latest/);
+  assert.match(guidance, /server\.log/);
+  assert.doesNotMatch(guidance, /完全結束 Ollama/);
+  assert.doesNotMatch(guidance, /重新下載安裝檔覆蓋安裝/);
+});
