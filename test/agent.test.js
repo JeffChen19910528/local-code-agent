@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildSystemPrompt, createAgentSession, extractToolCall } from "../src/agent.js";
+import { buildSystemPrompt, createAgentSession } from "../src/agent.js";
 
 async function withMockedFetch(responses, run) {
   const originalFetch = global.fetch;
@@ -15,24 +15,6 @@ async function withMockedFetch(responses, run) {
     global.fetch = originalFetch;
   }
 }
-
-test("extractToolCall returns parsed tool data", () => {
-  const input = [
-    "Need to inspect a file first.",
-    "<tool_call>",
-    "{\"tool\":\"read_file\",\"args\":{\"path\":\"src/index.js\"}}",
-    "</tool_call>"
-  ].join("\n");
-
-  assert.deepEqual(extractToolCall(input), {
-    tool: "read_file",
-    args: { path: "src/index.js" }
-  });
-});
-
-test("extractToolCall returns null when no tool call exists", () => {
-  assert.equal(extractToolCall("final answer"), null);
-});
 
 test("buildSystemPrompt tells the model not to claim file changes it didn't make", () => {
   const prompt = buildSystemPrompt({ workspace: process.cwd() }, []);

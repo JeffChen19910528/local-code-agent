@@ -87,6 +87,34 @@ npm link
 
 （Windows 上若 `npm` 解析有問題可改用 `npm.cmd`，macOS / Linux 不需要這個副檔名。）
 
+### 專案結構
+
+```
+bin/local-code.js       CLI 進入點，直接呼叫 src/cli.js 的 main()
+src/cli.js              指令路由（run/chat/models/init/skills/checkpoint/help），只做組裝
+src/cli/
+  args.js                解析 argv -> {command, prompt, options}
+  attachments.js          /attach 用到的路徑清理與附加內容組裝
+  progress.js             終端機進度輸出（每步耗時、token 數、工具呼叫摘要）
+  providerWizard.js        啟動時 provider/model 偵測與互動選單
+  checkpoints.js           checkpoint save/list/show/complete（CLI 版與 chat 內 /checkpoint 版共用）
+  chat.js                  互動式 chat REPL（/provider /model /status /repair /reset /attach ...）
+  startup.js               啟動時載入「上次任務摘要／最近修改檔案」等提示資訊
+  help.js                  help/init 的說明文字
+src/agent.js             agent 對話迴圈（呼叫 provider -> 解析回覆 -> 執行工具 -> 回填結果）
+src/toolCallParser.js    從模型回覆解析 <tool_call> 區塊，含多層 JSON 修復（獨立於 agent 迴圈，方便單獨測試）
+src/tools.js             工具（read_file/write_file/run_command/...）定義與核准流程
+src/workspace.js         實際檔案系統/程序操作，工具背後的實作
+src/providers/           Ollama / LM Studio 的 API 封裝
+src/runtime.js           provider 偵測、診斷、修復建議
+src/checkpoint.js        checkpoint 資料結構與存讀
+src/config.js            .local-code.json / .local-code-state.json 讀寫
+src/skills.js            Skill 檔案載入與比對
+src/ui.js                終端機選單、spinner、輸出格式
+```
+
+`src/cli.js` 原本是單一 1000+ 行的檔案，混雜了參數解析、chat REPL、checkpoint 指令、provider 選擇精靈；已拆成上面 `src/cli/` 底下的獨立模組，每個檔案只負責一件事，方便個別測試與修改。`src/agent.js` 裡原本內嵌的 `<tool_call>` JSON 容錯解析邏輯（約 260 行）也拆到 `src/toolCallParser.js`，agent 迴圈本身現在只處理對話流程。
+
 ## 初始化設定（選用）
 
 ```powershell
